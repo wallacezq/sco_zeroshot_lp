@@ -1,0 +1,1153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>SmartCart — YOLO-World Zero-Shot Self-Checkout</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet"/>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:      #06090d;
+  --surf:    #0c1117;
+  --card:    #111922;
+  --border:  #1a2738;
+  --accent:  #00e5a0;
+  --blue:    #29b6f6;
+  --amber:   #ffab40;
+  --red:     #ff4757;
+  --text:    #dde8f5;
+  --muted:   #4a6275;
+  --mono:    'IBM Plex Mono', monospace;
+  --sans:    'Syne', sans-serif;
+  --r:       8px;
+}
+
+html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--sans); overflow: hidden; }
+
+/* ── Layout ─ 3-column: live feed | snapshot evidence | right panel ── */
+#app {
+  display: grid;
+  grid-template-rows: 52px 1fr;
+  grid-template-columns: 1fr 340px 380px;
+  grid-template-areas: "hdr hdr hdr" "live snap panel";
+  height: 100vh;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────── */
+header {
+  grid-area: hdr;
+  background: var(--surf);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 14px;
+  padding: 0 18px;
+}
+.logo { font-weight: 800; font-size: 1.05rem; letter-spacing: .04em; color: var(--accent); }
+.logo span { color: var(--text); }
+.sep { width: 1px; height: 22px; background: var(--border); }
+
+.status-pill { display: flex; align-items: center; gap: 7px; font-family: var(--mono); font-size: .68rem; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.dot.live { background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{box-shadow:0 0 0 0 rgba(0,229,160,.5)} 50%{box-shadow:0 0 0 6px rgba(0,229,160,0)} }
+
+.badge {
+  font-family: var(--mono); font-size: .62rem;
+  padding: 2px 7px; border-radius: 4px; border: 1px solid;
+}
+.badge.yolo  { color: var(--accent); border-color: var(--accent); }
+.badge.demo  { color: var(--amber);  border-color: var(--amber); }
+.badge.guard { color: var(--blue);   border-color: var(--blue); }
+.badge.alert { color: var(--red);    border-color: var(--red);
+               animation: flashb .5s ease infinite alternate; }
+@keyframes flashb { from{border-color:var(--red)} to{border-color:transparent} }
+
+.spacer { flex: 1; }
+.cam-lbl { font-family: var(--mono); font-size: .68rem; color: var(--muted); }
+.cam-in  {
+  background: var(--card); border: 1px solid var(--border);
+  color: var(--text); font-family: var(--mono); font-size: .72rem;
+  padding: 4px 8px; border-radius: 5px; width: 48px; text-align: center;
+}
+.cam-in:focus { outline: none; border-color: var(--blue); }
+
+.btn {
+  font-family: var(--sans); font-weight: 700; font-size: .70rem;
+  letter-spacing: .07em; text-transform: uppercase;
+  padding: 5px 14px; border-radius: 6px; border: none; cursor: pointer;
+  transition: transform .12s, opacity .12s;
+}
+.btn:active { transform: scale(.95); }
+.btn:disabled { opacity: .4; cursor: default; }
+.btn-start { background: var(--accent); color: #040c08; }
+.btn-stop  { background: var(--red);    color: #fff; }
+
+/* ── Live camera feed ────────────────────────────────────────────────── */
+#live-area {
+  grid-area: live;
+  background: #03060a;
+  display: flex; align-items: center; justify-content: center;
+  position: relative; overflow: hidden;
+}
+#video-img { max-width: 100%; max-height: 100%; object-fit: contain; display: none; }
+#video-img.on { display: block; }
+
+#no-cam {
+  display: flex; flex-direction: column; align-items: center; gap: 12px; opacity: .28;
+}
+#no-cam svg { width: 62px; }
+#no-cam p { font-family: var(--mono); font-size: .75rem; }
+
+.fps { position: absolute; top: 10px; right: 10px;
+  font-family: var(--mono); font-size: .65rem;
+  background: rgba(6,9,13,.75); color: var(--blue);
+  padding: 2px 7px; border-radius: 4px; display: none; }
+
+.live-label {
+  position: absolute; top: 10px; left: 10px;
+  font-family: var(--mono); font-size: .65rem;
+  background: rgba(6,9,13,.75); color: var(--muted);
+  padding: 2px 10px; border-radius: 4px; display: none;
+}
+
+/* ── Snapshot evidence pane ──────────────────────────────────────────── */
+#snap-area {
+  grid-area: snap;
+  background: var(--surf);
+  border-left: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+
+.snap-hdr {
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 8px;
+}
+.snap-title { font-size: .82rem; font-weight: 700; letter-spacing: .03em; }
+.snap-ts    { font-family: var(--mono); font-size: .62rem; color: var(--muted); margin-left: auto; }
+
+/* Verdict strip */
+#verdict-strip {
+  padding: 7px 14px;
+  font-family: var(--mono); font-size: .72rem; font-weight: 600;
+  letter-spacing: .03em;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  min-height: 34px;
+  display: flex; align-items: center; gap: 8px;
+}
+#verdict-strip.match       { color: var(--accent); border-left: 3px solid var(--accent); }
+#verdict-strip.substitution{ color: var(--red);    border-left: 3px solid var(--red); }
+#verdict-strip.no_item     { color: var(--amber);  border-left: 3px solid var(--amber); }
+#verdict-strip.verify_miss { color: var(--amber);  border-left: 3px solid var(--amber); }
+#verdict-strip.verify_clear{ color: var(--accent); border-left: 3px solid var(--accent); }
+#verdict-strip.idle        { color: var(--muted);  border-left: 3px solid var(--border); }
+
+/* Snapshot image */
+#snap-img-wrap {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  background: #03060a; overflow: hidden; position: relative;
+}
+#snap-img { max-width: 100%; max-height: 100%; object-fit: contain; display: none; }
+#snap-img.on { display: block; }
+#snap-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 10px; opacity: .25;
+}
+#snap-empty svg { width: 52px; }
+#snap-empty p { font-family: var(--mono); font-size: .72rem; }
+
+/* Detection list under snapshot */
+#snap-dets {
+  border-top: 1px solid var(--border);
+  padding: 8px 14px;
+  max-height: 130px; overflow-y: auto;
+}
+.sdet-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 0; border-bottom: 1px solid rgba(26,39,56,.6);
+}
+.sdet-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.sdet-name { flex: 1; font-size: .76rem; font-weight: 600; }
+.sdet-conf { font-family: var(--mono); font-size: .63rem; color: var(--muted); }
+.sdet-tag  {
+  font-family: var(--mono); font-size: .60rem;
+  padding: 1px 5px; border-radius: 3px;
+}
+.sdet-tag.match { background: rgba(0,229,160,.14); color: var(--accent); }
+.sdet-tag.other { background: rgba(255,71,87,.12);  color: var(--red); }
+.sdet-tag.non   { background: rgba(74,98,117,.15);  color: var(--muted); }
+
+/* Spinner overlay for snapshot pane while scanning */
+#snap-spinner {
+  position: absolute; inset: 0;
+  background: rgba(6,9,13,.6);
+  display: none; align-items: center; justify-content: center;
+  flex-direction: column; gap: 12px;
+}
+#snap-spinner.on { display: flex; }
+.spinner {
+  width: 36px; height: 36px; border-radius: 50%;
+  border: 3px solid var(--border); border-top-color: var(--accent);
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner-lbl { font-family: var(--mono); font-size: .72rem; color: var(--accent); }
+
+/* ── Right panel ─────────────────────────────────────────────────────── */
+#panel {
+  grid-area: panel;
+  background: var(--surf);
+  border-left: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+
+/* Scan input */
+#scan-sec { padding: 12px 14px 8px; border-bottom: 1px solid var(--border); }
+.sec-lbl {
+  font-size: .62rem; font-weight: 700; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--muted); margin-bottom: 7px;
+}
+.scan-row { display: flex; gap: 7px; }
+#bc-input {
+  flex: 1; background: var(--card); border: 1px solid var(--border);
+  color: var(--text); font-family: var(--mono); font-size: .82rem;
+  padding: 7px 11px; border-radius: var(--r);
+  transition: border-color .15s, box-shadow .15s;
+}
+#bc-input:focus  { outline: none; border-color: var(--accent); }
+#bc-input.ok     { border-color: var(--accent); box-shadow: 0 0 8px rgba(0,229,160,.28); }
+#bc-input.err    { border-color: var(--red);    box-shadow: 0 0 8px rgba(255,71,87,.25); }
+#bc-input.warn   { border-color: var(--amber);  box-shadow: 0 0 8px rgba(255,171,64,.25); }
+
+.btn-scan {
+  background: var(--accent); color: #040c08;
+  font-family: var(--sans); font-weight: 800; font-size: .70rem;
+  letter-spacing: .06em; text-transform: uppercase;
+  padding: 7px 12px; border: none; border-radius: var(--r); cursor: pointer;
+  transition: transform .12s;
+  white-space: nowrap;
+}
+.btn-scan:active { transform: scale(.93); }
+.btn-scan:disabled { opacity: .4; cursor: default; }
+
+#scan-fb { font-family: var(--mono); font-size: .68rem; min-height: 17px; margin-top: 5px; }
+#scan-fb.ok   { color: var(--accent); }
+#scan-fb.err  { color: var(--red); }
+#scan-fb.warn { color: var(--amber); }
+
+.demo-row { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.demo-lbl { font-family: var(--mono); font-size: .58rem; color: var(--muted); }
+.demo-bc {
+  font-family: var(--mono); font-size: .60rem;
+  padding: 2px 7px; border-radius: 4px;
+  background: var(--card); border: 1px solid var(--border);
+  color: var(--blue); cursor: pointer;
+}
+.demo-bc:hover { border-color: var(--blue); }
+
+/* Verify button */
+.btn-verify {
+  width: calc(100% - 28px); margin: 8px 14px 0;
+  padding: 7px; background: transparent;
+  border: 1px solid var(--blue); color: var(--blue);
+  border-radius: var(--r); cursor: pointer;
+  font-family: var(--sans); font-weight: 700; font-size: .70rem;
+  letter-spacing: .06em; text-transform: uppercase;
+  transition: background .15s;
+}
+.btn-verify:hover { background: rgba(41,182,246,.1); }
+.btn-verify:disabled { opacity: .4; cursor: default; }
+
+/* Cart */
+#cart-sec { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+#cart-scroll { flex: 1; overflow-y: auto; padding: 4px 14px; }
+
+.cart-row {
+  display: grid; grid-template-columns: 1fr auto auto;
+  align-items: center; gap: 8px;
+  padding: 6px 0; border-bottom: 1px solid rgba(26,39,56,.6);
+}
+.c-name { font-size: .80rem; font-weight: 600; }
+.c-bc   { font-family: var(--mono); font-size: .58rem; color: var(--muted); }
+.c-ctrl { display: flex; align-items: center; gap: 3px; }
+.q-btn  {
+  width: 20px; height: 20px; border-radius: 4px;
+  background: var(--card); border: 1px solid var(--border);
+  color: var(--text); font-size: .85rem; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.q-btn:hover { border-color: var(--blue); }
+.c-qty { font-family: var(--mono); font-size: .76rem; min-width: 18px; text-align: center; }
+.c-sub { font-family: var(--mono); font-size: .74rem; color: var(--accent); }
+.cart-empty { text-align: center; padding: 26px 0; font-family: var(--mono); font-size: .74rem; color: var(--muted); }
+
+/* Totals */
+#totals { border-top: 1px solid var(--border); padding: 9px 14px; }
+.t-row { display: flex; justify-content: space-between; font-size: .78rem; padding: 2px 0; }
+.t-lbl { color: var(--muted); }
+.t-grand { font-size: 1.02rem; font-weight: 800; color: var(--accent);
+           border-top: 1px solid var(--border); margin-top: 5px; padding-top: 6px; }
+.t-actions { display: flex; gap: 7px; margin-top: 9px; }
+.btn-checkout {
+  flex: 1; padding: 8px; background: var(--accent); color: #040c08;
+  font-family: var(--sans); font-weight: 800; font-size: .78rem;
+  letter-spacing: .06em; text-transform: uppercase;
+  border: none; border-radius: var(--r); cursor: pointer;
+  transition: box-shadow .15s, transform .12s;
+}
+.btn-checkout:hover { box-shadow: 0 0 16px rgba(0,229,160,.3); transform: translateY(-1px); }
+.btn-clr {
+  padding: 8px 11px; background: transparent;
+  border: 1px solid var(--border); color: var(--muted);
+  border-radius: var(--r); cursor: pointer;
+  font-family: var(--sans); font-weight: 700; font-size: .68rem;
+  text-transform: uppercase; letter-spacing: .05em;
+  transition: border-color .15s, color .15s;
+}
+.btn-clr:hover { border-color: var(--red); color: var(--red); }
+
+/* Fraud log */
+#fraud-sec {
+  border-top: 1px solid var(--border);
+  max-height: 165px; overflow-y: auto;
+  padding: 6px 14px;
+  flex-shrink: 0;
+}
+.fraud-hdr { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.btn-clr-fr {
+  font-family: var(--mono); font-size: .60rem;
+  background: transparent; border: 1px solid var(--border);
+  color: var(--muted); padding: 1px 7px; border-radius: 3px; cursor: pointer;
+}
+.btn-clr-fr:hover { border-color: var(--red); color: var(--red); }
+
+.fr-row {
+  display: flex; gap: 7px; align-items: flex-start;
+  padding: 4px 0; border-bottom: 1px solid rgba(26,39,56,.5);
+  cursor: pointer;
+  transition: background .1s;
+}
+.fr-row:hover { background: rgba(255,255,255,.02); border-radius: 4px; }
+.fr-icon { font-size: .85rem; flex-shrink: 0; margin-top: 1px; }
+.fr-body { flex: 1; }
+.fr-kind { font-size: .60rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.fr-kind.match       { color: var(--accent); }
+.fr-kind.substitution{ color: var(--red); }
+.fr-kind.no_item     { color: var(--amber); }
+.fr-kind.verify_miss { color: var(--amber); }
+.fr-kind.verify_clear{ color: var(--accent); }
+.fr-detail { font-family: var(--mono); font-size: .62rem; color: var(--muted); margin-top: 1px; }
+.fr-age  { font-family: var(--mono); font-size: .58rem; color: var(--border); flex-shrink: 0; }
+
+/* ── Vocab chip strip ────────────────────────────────────────────────── */
+#classes-strip {
+  padding: 6px 14px 4px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  flex-shrink: 0;
+}
+.cls-label { font-size:.58rem; font-weight:700; letter-spacing:.1em;
+             text-transform:uppercase; color:var(--muted); margin-bottom:4px; }
+#chip-wrap { display:flex; flex-wrap:wrap; gap:4px; max-height:64px; overflow-y:auto; }
+.chip {
+  font-family:var(--mono); font-size:.58rem;
+  padding:2px 7px; border-radius:3px;
+  background:rgba(41,182,246,.1); border:1px solid rgba(41,182,246,.25);
+  color:var(--blue);
+}
+.chip.highlight {
+  background:rgba(0,229,160,.18); border-color:rgba(0,229,160,.5);
+  color:var(--accent); font-weight:600;
+}
+
+/* ── Dynamic vocab add ───────────────────────────────────────────────── */
+#vocab-add-row { display:flex; gap:6px; margin: 6px 14px 0; }
+#vocab-input {
+  flex:1; background:var(--card); border:1px solid var(--border);
+  color:var(--text); font-family:var(--mono); font-size:.72rem;
+  padding:5px 9px; border-radius:5px;
+}
+#vocab-input:focus { outline:none; border-color:var(--blue); }
+.btn-vocab {
+  background:transparent; border:1px solid var(--blue); color:var(--blue);
+  font-family:var(--sans); font-weight:700; font-size:.65rem;
+  letter-spacing:.06em; text-transform:uppercase;
+  padding:5px 10px; border-radius:5px; cursor:pointer;
+  transition:background .12s;
+}
+.btn-vocab:hover { background:rgba(41,182,246,.12); }
+
+/* ── Match-mode toggle ───────────────────────────────────────────────── */
+.mode-toggle {
+  display: inline-flex; border: 1px solid var(--border);
+  border-radius: 6px; overflow: hidden; background: var(--card);
+}
+.mode-btn {
+  font-family: var(--mono); font-size: .62rem; font-weight: 600;
+  letter-spacing: .06em; text-transform: uppercase;
+  padding: 4px 11px; border: none; cursor: pointer;
+  background: transparent; color: var(--muted);
+  transition: background .15s, color .15s;
+}
+.mode-btn.active {
+  background: var(--blue); color: #05111d;
+}
+.mode-btn.active.top5 {
+  background: var(--amber); color: #1a0f00;
+}
+.mode-lbl {
+  font-family: var(--mono); font-size: .58rem; color: var(--muted);
+  align-self: center; margin-right: 5px;
+}
+
+/* Rank badge in detection list */
+.rank-badge {
+  font-family: var(--mono); font-size: .55rem; font-weight: 700;
+  padding: 1px 5px; border-radius: 3px; flex-shrink: 0;
+}
+.rank-1 { background: rgba(0,229,160,.18); color: var(--accent); }
+.rank-2 { background: rgba(41,182,246,.14); color: var(--blue); }
+.rank-3,.rank-4,.rank-5 { background: rgba(74,98,117,.2); color: var(--muted); }
+
+/* ── Conf badge ──────────────────────────────────────────────────────── */
+.conf-tag {
+  font-family:var(--mono); font-size:.60rem; color:var(--muted);
+  padding:1px 6px; border:1px solid var(--border); border-radius:3px;
+}
+
+/* ── Scrollbars ──────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* ── Toast ───────────────────────────────────────────────────────────── */
+#toast {
+  position: fixed; bottom: 18px; left: 50%;
+  transform: translateX(-50%) translateY(22px);
+  background: var(--card); border: 1px solid var(--border);
+  color: var(--text); font-family: var(--mono); font-size: .72rem;
+  padding: 7px 16px; border-radius: var(--r);
+  opacity: 0; transition: all .26s; pointer-events: none; z-index: 999;
+  white-space: nowrap;
+}
+#toast.show     { opacity: 1; transform: translateX(-50%) translateY(0); }
+#toast.show.err { border-color: var(--red); color: var(--red); }
+#toast.show.warn{ border-color: var(--amber); color: var(--amber); }
+
+/* ── Receipt modal ───────────────────────────────────────────────────── */
+#modal-bg {
+  display: none; position: fixed; inset: 0;
+  background: rgba(6,9,13,.88); z-index: 800;
+  align-items: center; justify-content: center;
+}
+#modal-bg.open { display: flex; }
+#receipt {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 12px; padding: 26px; width: 320px;
+  max-height: 80vh; overflow-y: auto;
+}
+.r-title { font-size: 1.15rem; font-weight: 800; color: var(--accent); margin-bottom: 3px; }
+.r-time  { font-family: var(--mono); font-size: .63rem; color: var(--muted); margin-bottom: 12px; }
+.r-row   { display: flex; justify-content: space-between; font-size: .78rem; padding: 4px 0; border-bottom: 1px solid rgba(26,39,56,.5); }
+.r-grand { display: flex; justify-content: space-between; font-size: .95rem; font-weight: 800; color: var(--accent); margin-top: 9px; }
+.btn-done {
+  margin-top: 16px; width: 100%; padding: 9px;
+  background: var(--accent); color: #040c08;
+  font-family: var(--sans); font-weight: 800; font-size: .78rem;
+  text-transform: uppercase; letter-spacing: .06em;
+  border: none; border-radius: var(--r); cursor: pointer;
+}
+</style>
+</head>
+<body>
+<div id="app">
+
+<!-- ── HEADER ───────────────────────────────────────────────────────── -->
+<header>
+  <div class="logo">Smart<span>Cart</span></div>
+  <div class="sep"></div>
+  <div class="status-pill">
+    <div class="dot" id="dot"></div>
+    <span id="status-lbl" style="color:var(--muted)">OFFLINE</span>
+  </div>
+  <span class="badge demo" id="yolo-badge">—</span>
+  <span class="badge" id="vocab-badge" style="display:none;color:var(--blue);border-color:var(--blue)">0 classes</span>
+  <span class="badge guard" id="guard-badge" style="display:none">🛡 ZERO-SHOT GUARD</span>
+  <div class="spacer"></div>
+  <span class="cam-lbl">CAM</span>
+  <input id="cam-idx" class="cam-in" type="number" min="0" max="9" value="0"/>
+  <button class="btn btn-start" id="btn-start" onclick="startPipeline()">▶ Start</button>
+  <button class="btn btn-stop"  id="btn-stop"  onclick="stopPipeline()" disabled>■ Stop</button>
+</header>
+
+<!-- ── LIVE FEED ─────────────────────────────────────────────────────── -->
+<section id="live-area">
+  <div id="no-cam">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+      <circle cx="12" cy="13" r="4"/>
+    </svg>
+    <p>Press START to activate camera</p>
+  </div>
+  <img id="video-img" alt="Live feed"/>
+  <div class="fps"       id="fps">— fps</div>
+  <div class="live-label" id="live-label">YOLO-World  |  Zero-Shot  |  LIVE VIEW</div>
+</section>
+
+<!-- ── SNAPSHOT EVIDENCE PANE ──────────────────────────────────────── -->
+<section id="snap-area">
+  <div class="snap-hdr">
+    <span class="snap-title">📸 Scan Snapshot</span>
+    <span class="snap-ts" id="snap-ts">—</span>
+  </div>
+
+  <div id="verdict-strip" class="idle">
+    Awaiting first scan…
+  </div>
+
+  <div id="snap-img-wrap">
+    <div id="snap-empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+        <rect x="3" y="3" width="18" height="18" rx="2"/>
+        <circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
+      </svg>
+      <p>Snapshot appears here on scan</p>
+    </div>
+    <img id="snap-img" alt="Scan snapshot"/>
+    <div id="snap-spinner">
+      <div class="spinner"></div>
+      <span class="spinner-lbl">Capturing &amp; analysing…</span>
+    </div>
+  </div>
+
+  <div id="snap-dets">
+    <div class="sec-lbl" style="margin-bottom:5px">Detected objects</div>
+    <div id="snap-det-list"><span style="font-family:var(--mono);font-size:.68rem;color:var(--muted)">—</span></div>
+  </div>
+
+  <!-- Zero-shot classes used for this snapshot -->
+  <div id="classes-strip">
+    <div class="cls-label">Zero-shot classes queried</div>
+    <div id="chip-wrap"><span style="font-family:var(--mono);font-size:.62rem;color:var(--muted)">Awaiting scan…</span></div>
+  </div>
+</section>
+
+<!-- ── RIGHT PANEL ───────────────────────────────────────────────────── -->
+<aside id="panel">
+
+  <!-- Scan input -->
+  <div id="scan-sec">
+    <div class="sec-lbl">📦 Barcode Scan</div>
+    <div class="scan-row">
+      <input id="bc-input" type="text" placeholder="Scan / type barcode then Enter" autocomplete="off" autofocus/>
+      <button class="btn-scan" id="btn-scan" onclick="doScan()" disabled>SCAN</button>
+    </div>
+    <div id="scan-fb"></div>
+    <div class="demo-row">
+      <span class="demo-lbl">Demo:</span>
+      <button class="demo-bc" onclick="quickScan('002')">002 Granny-Smith</button>
+      <button class="demo-bc" onclick="quickScan('007')">007 Banana</button>
+      <button class="demo-bc" onclick="quickScan('017')">017 Orange</button>
+      <button class="demo-bc" onclick="quickScan('064')">064 Carrots</button>
+      <button class="demo-bc" onclick="quickScan('042')">042 Arla-Milk</button>
+    </div>
+  </div>
+
+  <!-- Manual verify -->
+  <button class="btn-verify" id="btn-verify" onclick="doVerify()" disabled>
+    🔍 Verify Bagging Area (Snapshot)
+  </button>
+
+  <!-- Fraud match-mode toggle -->
+  <div style="display:flex; align-items:center; gap:8px; padding: 6px 14px 2px;">
+    <span class="mode-lbl">FRAUD MATCH</span>
+    <div class="mode-toggle" id="mode-toggle">
+      <button class="mode-btn active" id="btn-top1" onclick="setMatchMode('top1')">Top-1</button>
+      <button class="mode-btn"        id="btn-top5" onclick="setMatchMode('top5')">Top-5</button>
+    </div>
+    <span id="mode-hint" style="font-family:var(--mono);font-size:.58rem;color:var(--muted);flex:1">
+      strict — must be #1 prediction
+    </span>
+  </div>
+
+  <!-- Dynamic vocab add -->
+  <div id="vocab-add-row">
+    <input id="vocab-input" type="text" placeholder="Add product to zero-shot vocab…"/>
+    <button class="btn-vocab" onclick="addVocab()">+ ADD</button>
+  </div>
+
+  <!-- Cart -->
+  <div id="cart-sec">
+    <div class="sec-lbl" style="padding: 8px 14px 2px">
+      🛒 Cart <span id="item-count" style="color:var(--muted);font-weight:400">— 0 items</span>
+    </div>
+    <div id="cart-scroll">
+      <p class="cart-empty" id="cart-empty">Cart is empty</p>
+    </div>
+
+    <div id="totals">
+      <div class="t-row"><span class="t-lbl">Subtotal</span><span id="sub">MYR 0.00</span></div>
+      <div class="t-row"><span class="t-lbl">SST (6%)</span><span id="tax">MYR 0.00</span></div>
+      <div class="t-row t-grand"><span>TOTAL</span><span id="grand">MYR 0.00</span></div>
+      <div class="t-actions">
+        <button class="btn-clr" onclick="clearCart()">Clear</button>
+        <button class="btn-checkout" onclick="checkout()">Checkout →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Fraud / audit log -->
+  <div id="fraud-sec">
+    <div class="fraud-hdr">
+      <div class="sec-lbl" style="margin:0">⚠ Scan Audit Log</div>
+      <button class="btn-clr-fr" onclick="clearFraudLog()">Clear</button>
+    </div>
+    <div id="fraud-list">
+      <span style="font-family:var(--mono);font-size:.68rem;color:var(--muted)">No events yet</span>
+    </div>
+  </div>
+
+</aside>
+</div>
+
+<div id="toast"></div>
+
+<!-- Receipt modal -->
+<div id="modal-bg">
+  <div id="receipt">
+    <div class="r-title">🧾 Receipt</div>
+    <div class="r-time" id="r-time"></div>
+    <div id="r-rows"></div>
+    <div class="r-grand" id="r-grand"></div>
+    <button class="btn-done" onclick="closeReceipt()">Done — Thank you!</button>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────
+const TAX = 0.06;
+let isRunning  = false;
+let cartTimer  = null;
+let fraudTimer = null;
+let fpsTimer   = null;
+let imgLoads = 0, lastLoads = 0;
+let scanning = false;   // debounce: only one scan request at a time
+
+const NON_PROD = new Set(['person','chair','laptop','cell phone','remote',
+                          'keyboard','mouse','tv','clock','vase','tie','handbag',
+                          'umbrella','backpack','suitcase','bench','bed','toilet']);
+
+// ─────────────────────────────────────────────────────────
+// UTILITIES
+// ─────────────────────────────────────────────────────────
+function toast(msg, cls = '', dur = 2500) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show' + (cls ? ' ' + cls : '');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.className = '', dur);
+}
+
+async function api(path, method = 'GET', body = null) {
+  const o = { method, headers: {'Content-Type': 'application/json'} };
+  if (body) o.body = JSON.stringify(body);
+  const r = await fetch(path, o);
+  return r.json();
+}
+
+// ─────────────────────────────────────────────────────────
+// PIPELINE
+// ─────────────────────────────────────────────────────────
+async function startPipeline() {
+  const idx = parseInt(document.getElementById('cam-idx').value) || 0;
+  document.getElementById('btn-start').disabled = true;
+
+  const d = await api('/api/start', 'POST', { camera_index: idx });
+  if (!d.ok) {
+    toast(d.error || 'Failed to start', 'err', 4000);
+    document.getElementById('btn-start').disabled = false;
+    return;
+  }
+
+  isRunning = true;
+  document.getElementById('btn-stop').disabled   = false;
+  document.getElementById('btn-scan').disabled   = false;
+  document.getElementById('btn-verify').disabled = false;
+  document.getElementById('dot').classList.add('live');
+  document.getElementById('status-lbl').textContent = 'LIVE';
+  document.getElementById('status-lbl').style.color  = 'var(--accent)';
+  document.getElementById('guard-badge').style.display = 'inline';
+
+  // YOLO-World badge
+  const yb = document.getElementById('yolo-badge');
+  yb.textContent = d.yolo_world ? 'YOLO-World' : 'DEMO';
+  yb.className   = 'badge ' + (d.yolo_world ? 'yolo' : 'demo');
+
+  // Vocab size badge
+  if (d.vocab_size) {
+    const vb = document.getElementById('vocab-badge');
+    vb.textContent = `${d.vocab_size} classes`;
+    vb.style.display = 'inline';
+  }
+
+  const img = document.getElementById('video-img');
+  img.src = '/video_feed?' + Date.now();
+  img.className = 'on';
+  img.addEventListener('load', () => imgLoads++);
+  document.getElementById('no-cam').style.display = 'none';
+  document.getElementById('fps').style.display = 'block';
+  document.getElementById('live-label').style.display = 'block';
+
+  cartTimer  = setInterval(refreshCart, 2000);
+  fraudTimer = setInterval(refreshFraudLog, 1500);
+  fpsTimer   = setInterval(() => {
+    document.getElementById('fps').textContent = (imgLoads - lastLoads) + ' fps';
+    lastLoads = imgLoads;
+  }, 1000);
+
+  document.getElementById('bc-input').focus();
+  toast(`Pipeline started — YOLO-World  |  ${d.vocab_size || 0} zero-shot classes`);
+}
+
+async function stopPipeline() {
+  isRunning = false;
+  clearInterval(cartTimer); clearInterval(fraudTimer); clearInterval(fpsTimer);
+  await api('/api/stop', 'POST');
+
+  const img = document.getElementById('video-img');
+  img.src = ''; img.className = '';
+  document.getElementById('no-cam').style.display = 'flex';
+  document.getElementById('fps').style.display = 'none';
+  document.getElementById('live-label').style.display = 'none';
+  document.getElementById('dot').classList.remove('live');
+  document.getElementById('status-lbl').textContent = 'OFFLINE';
+  document.getElementById('status-lbl').style.color  = 'var(--muted)';
+  document.getElementById('btn-start').disabled   = false;
+  document.getElementById('btn-stop').disabled    = true;
+  document.getElementById('btn-scan').disabled    = true;
+  document.getElementById('btn-verify').disabled  = true;
+  document.getElementById('guard-badge').style.display = 'none';
+  toast('Pipeline stopped');
+}
+
+// ─────────────────────────────────────────────────────────
+// BARCODE SCAN
+// ─────────────────────────────────────────────────────────
+document.getElementById('bc-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); doScan(); }
+});
+
+async function doScan() {
+  if (scanning) return;
+  const val = document.getElementById('bc-input').value.trim();
+  if (!val) return;
+  document.getElementById('bc-input').value = '';
+  document.getElementById('bc-input').focus();
+  await submitBarcode(val);
+}
+
+async function quickScan(code) {
+  if (scanning) return;
+  document.getElementById('bc-input').value = code;
+  await doScan();
+}
+
+async function submitBarcode(barcode) {
+  scanning = true;
+  const inp  = document.getElementById('bc-input');
+  const fb   = document.getElementById('scan-fb');
+  const bscan = document.getElementById('btn-scan');
+  bscan.disabled = true;
+
+  // Show spinner in snapshot pane
+  showSpinner(true);
+  setVerdictStrip('idle', '⏳ Capturing snapshot…');
+
+  const d = await api('/api/scan', 'POST', { barcode });
+  showSpinner(false);
+  bscan.disabled = false;
+  scanning = false;
+
+  if (!d.ok) {
+    inp.classList.add('err');
+    fb.className = 'err';
+    fb.textContent = '✗ ' + (d.error || 'Unknown barcode');
+    toast('Unknown barcode: ' + barcode, 'err');
+    setTimeout(() => inp.classList.remove('err'), 800);
+    setVerdictStrip('idle', 'Scan failed — unknown barcode');
+    return;
+  }
+
+  // Reflect verdict on scan input colour
+  const verdict = d.verdict;
+  const disp    = d.display_name || d.name;   // last-segment display name
+  if (verdict === 'match') {
+    inp.classList.add('ok'); fb.className = 'ok';
+    fb.textContent = `✓ ${disp}  MYR ${d.price.toFixed(2)}  [${d.top_class.split('/').pop()} ${(d.top_conf*100).toFixed(0)}%]`;
+    toast(`✓ ${disp}  MYR ${d.price.toFixed(2)}`);
+    setTimeout(() => inp.classList.remove('ok'), 900);
+  } else if (verdict === 'no_item') {
+    inp.classList.add('warn'); fb.className = 'warn';
+    fb.textContent = `⚠ ${disp} scanned but no item detected in frame`;
+    toast('Item not visible in camera', 'warn', 3500);
+    setTimeout(() => inp.classList.remove('warn'), 900);
+  } else {  // substitution
+    inp.classList.add('err'); fb.className = 'err';
+    fb.textContent = `🚨 SUSPICIOUS — scanned '${disp}' but saw '${d.top_class.split('/').pop()}'`;
+    toast('🚨 Suspicious scan detected!', 'err', 5000);
+    setTimeout(() => inp.classList.remove('err'), 900);
+  }
+
+  // Update snapshot pane
+  displaySnapshot(d.snapshot_b64, d.verdict, d.msg, d.detections, d.name, d.classes_used || []);
+  await refreshCart();
+}
+
+// ─────────────────────────────────────────────────────────
+// MANUAL VERIFY
+// ─────────────────────────────────────────────────────────
+async function doVerify() {
+  if (scanning) return;
+  scanning = true;
+  document.getElementById('btn-verify').disabled = true;
+  showSpinner(true);
+  setVerdictStrip('idle', '⏳ Scanning bagging area…');
+
+  const d = await api('/api/verify', 'POST');
+  showSpinner(false);
+  document.getElementById('btn-verify').disabled = false;
+  scanning = false;
+
+  displaySnapshot(d.snapshot_b64, d.verdict, d.msg, d.detections, '', d.classes_used || []);
+
+  if (d.verdict === 'verify_clear') {
+    toast('✓ Bagging area clear — all items scanned');
+  } else {
+    toast('⚠ Unscanned item(s) detected: ' + (d.unscanned || []).join(', '), 'warn', 5000);
+  }
+
+  await refreshFraudLog();
+}
+
+// ─────────────────────────────────────────────────────────
+// SNAPSHOT PANE
+// ─────────────────────────────────────────────────────────
+function showSpinner(on) {
+  document.getElementById('snap-spinner').className = on ? 'on' : '';
+}
+
+function setVerdictStrip(cls, msg) {
+  const el = document.getElementById('verdict-strip');
+  el.className = cls;
+  el.textContent = msg;
+}
+
+function displaySnapshot(b64, verdict, msg, detections, highlightName, classesUsed) {
+  // Image
+  const img = document.getElementById('snap-img');
+  const empty = document.getElementById('snap-empty');
+  if (b64) {
+    img.src = 'data:image/jpeg;base64,' + b64;
+    img.className = 'on';
+    empty.style.display = 'none';
+  }
+
+  // Timestamp
+  document.getElementById('snap-ts').textContent = new Date().toLocaleTimeString();
+
+  // Verdict strip
+  setVerdictStrip(verdict, msg);
+
+  // Detection list — show top-5 predictions per detection object
+  const list = document.getElementById('snap-det-list');
+  if (!detections || !detections.length) {
+    list.innerHTML = '<span style="font-family:var(--mono);font-size:.68rem;color:var(--muted)">Nothing detected in zero-shot query</span>';
+  } else {
+    const rows = [];
+    detections.forEach((det, di) => {
+      const preds = det.top_preds && det.top_preds.length ? det.top_preds : [{ label: det.label, conf: det.conf, rank: 1 }];
+      preds.forEach(p => {
+        const isHighlight = p.label === highlightName;
+        const isTop1      = p.rank === 1;
+        const dotCol = isHighlight ? 'var(--accent)' : isTop1 ? 'var(--blue)' : 'var(--muted)';
+        const tagCls = isHighlight ? 'match' : 'other';
+        const tagTxt = isHighlight ? '✓ match' : '≠ other';
+        rows.push(`<div class="sdet-row">
+          <div class="sdet-dot" style="background:${dotCol}"></div>
+          <span class="rank-badge rank-${p.rank}">#${p.rank}</span>
+          <span class="sdet-name">${p.label}</span>
+          <span class="sdet-conf">${(p.conf*100).toFixed(0)}%</span>
+          <span class="sdet-tag ${tagCls}">${tagTxt}</span>
+        </div>`);
+      });
+      // Separator between detection objects if >1
+      if (di < detections.length - 1 && detections.length > 1) {
+        rows.push('<div style="height:4px;border-bottom:1px dashed rgba(26,39,56,.5);margin:2px 0"></div>');
+      }
+    });
+    list.innerHTML = rows.join('');
+  }
+
+  // Zero-shot class chips
+  const chipWrap = document.getElementById('chip-wrap');
+  if (classesUsed && classesUsed.length) {
+    chipWrap.innerHTML = classesUsed.map(cls => {
+      const isTarget = cls === highlightName;
+      return `<span class="chip${isTarget ? ' highlight' : ''}">${cls}</span>`;
+    }).join('');
+  } else {
+    chipWrap.innerHTML = '<span style="font-family:var(--mono);font-size:.62rem;color:var(--muted)">—</span>';
+  }
+}
+
+// Click audit log row → show its snapshot
+function showFraudSnap(b64, verdict, msg, detected, scanned, classesJson) {
+  if (!b64) return;
+  let classes = [];
+  try { classes = JSON.parse(decodeURIComponent(classesJson)); } catch(e) {}
+  displaySnapshot(b64, verdict, msg, [{label: detected, conf: 1.0, box:[0,0,0,0]}], scanned, classes);
+}
+
+// ─────────────────────────────────────────────────────────
+// CART
+// ─────────────────────────────────────────────────────────
+async function refreshCart() {
+  renderCart(await api('/api/cart'));
+}
+
+function renderCart(data) {
+  const items = data.items || [];
+  const sub   = data.total || 0;
+  const tax   = sub * TAX;
+  const grand = sub + tax;
+  const qty   = items.reduce((a,i) => a + i.count, 0);
+
+  document.getElementById('item-count').textContent = `— ${qty} item${qty !== 1 ? 's' : ''}`;
+  document.getElementById('sub').textContent   = 'MYR ' + sub.toFixed(2);
+  document.getElementById('tax').textContent   = 'MYR ' + tax.toFixed(2);
+  document.getElementById('grand').textContent = 'MYR ' + grand.toFixed(2);
+
+  const scroll = document.getElementById('cart-scroll');
+  const empty  = document.getElementById('cart-empty');
+
+  if (!items.length) {
+    empty.style.display = 'block';
+    [...scroll.querySelectorAll('.cart-row')].forEach(el => el.remove());
+    return;
+  }
+  empty.style.display = 'none';
+
+  const incoming = new Set(items.map(i => i.name));
+  [...scroll.querySelectorAll('.cart-row')].forEach(el => {
+    if (!incoming.has(el.dataset.name)) el.remove();
+  });
+
+  items.forEach(item => {
+    let row = scroll.querySelector(`.cart-row[data-name="${CSS.escape(item.name)}"]`);
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'cart-row';
+      row.dataset.name = item.name;
+      scroll.appendChild(row);
+    }
+    row.innerHTML = `
+      <div>
+        <div class="c-name">${item.display_name || item.name}</div>
+        <div class="c-bc">${item.barcode}</div>
+      </div>
+      <div class="c-ctrl">
+        <button class="q-btn" onclick="removeItem('${item.name}')">−</button>
+        <span class="c-qty">${item.count}</span>
+        <button class="q-btn" onclick="reAddItem('${item.name}','${item.barcode}')">+</button>
+      </div>
+      <div class="c-sub">MYR ${item.subtotal.toFixed(2)}</div>`;
+  });
+}
+
+async function removeItem(name) {
+  await api('/api/cart/remove', 'POST', { name });
+  await refreshCart();
+}
+
+async function reAddItem(name, barcode) {
+  // Re-add via scan (triggers snapshot verification)
+  await submitBarcode(barcode);
+}
+
+async function clearCart() {
+  await api('/api/cart/clear', 'POST');
+  await refreshCart();
+  toast('Cart cleared');
+}
+
+// ─────────────────────────────────────────────────────────
+// FRAUD / AUDIT LOG
+// ─────────────────────────────────────────────────────────
+const ICONS = {
+  match:        '✓',
+  substitution: '🚨',
+  no_item:      '⚠',
+  verify_miss:  '⚠',
+  verify_clear: '✓',
+};
+
+async function refreshFraudLog() {
+  const d = await api('/api/fraud_log');
+  renderFraudLog(d.log || []);
+}
+
+function renderFraudLog(log) {
+  const list = document.getElementById('fraud-list');
+  const gb = document.getElementById('guard-badge');
+
+  const alerts = log.filter(e => ['substitution','no_item','verify_miss'].includes(e.kind));
+  if (alerts.length) {
+    gb.className = 'badge alert';
+    gb.textContent = `⚠ ${alerts.length} Alert${alerts.length > 1 ? 's' : ''}`;
+  } else if (isRunning) {
+    gb.className = 'badge guard';
+    gb.textContent = '🛡 ZERO-SHOT GUARD';
+  }
+
+  if (!log.length) {
+    list.innerHTML = '<span style="font-family:var(--mono);font-size:.68rem;color:var(--muted)">No events yet</span>';
+    return;
+  }
+
+  list.innerHTML = log.map(e => {
+    const icon = ICONS[e.kind] || '?';
+    const disp  = s => (s || '').split('/').pop() || s;  // extract last segment
+    const detail = e.kind === 'verify_miss'
+      ? `Unscanned: ${disp(e.detected_top)}`
+      : e.kind === 'match'
+        ? `${disp(e.scanned_name)} → ${disp(e.detected_top)} [${(e.confidence*100).toFixed(0)}%]`
+        : e.kind === 'substitution'
+          ? `Scanned '${disp(e.scanned_name)}' | Saw '${disp(e.detected_top)}'`
+          : `${disp(e.scanned_name)} — no item in frame`;
+    const classesEnc = encodeURIComponent(JSON.stringify(e.classes_used || []));
+    return `<div class="fr-row"
+      onclick="showFraudSnap('${e.snapshot_b64||''}','${e.kind}','${e.detected_top}','${e.detected_top}','${e.scanned_name||''}','${classesEnc}')">
+      <span class="fr-icon">${icon}</span>
+      <div class="fr-body">
+        <div class="fr-kind ${e.kind}">${e.kind.replace('_',' ').toUpperCase()}</div>
+        <div class="fr-detail">${detail}</div>
+      </div>
+      <span class="fr-age">${e.age}s</span>
+    </div>`;
+  }).join('');
+}
+
+async function clearFraudLog() {
+  await api('/api/fraud_log/clear', 'POST');
+  renderFraudLog([]);
+  toast('Audit log cleared');
+}
+
+// ─────────────────────────────────────────────────────────
+// CHECKOUT
+// ─────────────────────────────────────────────────────────
+async function checkout() {
+  const d = await api('/api/cart');
+  if (!d.items.length) { toast('Cart is empty!', 'err'); return; }
+  const sub   = d.total;
+  const tax   = sub * TAX;
+  const grand = sub + tax;
+  document.getElementById('r-time').textContent = new Date().toLocaleString();
+  document.getElementById('r-rows').innerHTML = d.items.map(i =>
+    `<div class="r-row"><span>${i.display_name || i.name} × ${i.count}</span><span>MYR ${i.subtotal.toFixed(2)}</span></div>`
+  ).join('') +
+  `<div class="r-row" style="color:var(--muted)"><span>SST 6%</span><span>MYR ${tax.toFixed(2)}</span></div>`;
+  document.getElementById('r-grand').innerHTML =
+    `<span>TOTAL</span><span>MYR ${grand.toFixed(2)}</span>`;
+  document.getElementById('modal-bg').classList.add('open');
+  await clearCart();
+}
+
+function closeReceipt() {
+  document.getElementById('modal-bg').classList.remove('open');
+  toast('Thank you for shopping! 🎉', '', 3000);
+}
+
+// ─────────────────────────────────────────────────────────
+// DYNAMIC VOCAB  (zero-shot — no retraining needed)
+// ─────────────────────────────────────────────────────────
+async function addVocab() {
+  const inp = document.getElementById('vocab-input');
+  const name = inp.value.trim().toLowerCase();
+  if (!name) return;
+
+  const d = await api('/api/vocab/add', 'POST', { name });
+  if (d.ok) {
+    inp.value = '';
+    const vb = document.getElementById('vocab-badge');
+    vb.textContent = `${d.vocab.length} classes`;
+    vb.style.display = 'inline';
+    toast(`✓ '${name}' added to zero-shot vocabulary`);
+  } else {
+    toast('Failed to add: ' + (d.error || '?'), 'err');
+  }
+}
+
+document.getElementById('vocab-input')?.addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); addVocab(); }
+});
+
+// ─────────────────────────────────────────────────────────
+// MATCH MODE TOGGLE  (Top-1 vs Top-5 CLIP prediction matching)
+// ─────────────────────────────────────────────────────────
+let currentMatchMode = 'top1';
+
+async function setMatchMode(mode) {
+  const d = await api('/api/match_mode', 'POST', { mode });
+  if (!d.ok) { toast('Failed to set match mode', 'err'); return; }
+  currentMatchMode = mode;
+  applyMatchModeUI(mode);
+  toast(mode === 'top5'
+    ? '🔵 Top-5 mode — match if product is in top 5 predictions'
+    : '🟢 Top-1 mode — strict, must be #1 prediction', '', 3000);
+}
+
+function applyMatchModeUI(mode) {
+  const b1   = document.getElementById('btn-top1');
+  const b5   = document.getElementById('btn-top5');
+  const hint = document.getElementById('mode-hint');
+  if (mode === 'top5') {
+    b1.classList.remove('active');
+    b5.classList.add('active', 'top5');
+    hint.textContent = 'lenient — match if in top-5 predictions';
+    hint.style.color  = 'var(--amber)';
+  } else {
+    b5.classList.remove('active', 'top5');
+    b1.classList.add('active');
+    hint.textContent = 'strict — must be #1 prediction';
+    hint.style.color  = 'var(--muted)';
+  }
+}
+
+// ─────────────────────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────────────────────
+(async () => {
+  const s = await api('/api/status');
+  const yb = document.getElementById('yolo-badge');
+  yb.textContent = s.yolo_world ? 'YOLO-World' : 'DEMO';
+  yb.className   = 'badge ' + (s.yolo_world ? 'yolo' : 'demo');
+  if (s.vocab_size) {
+    const vb = document.getElementById('vocab-badge');
+    vb.textContent = `${s.vocab_size} classes`;
+    vb.style.display = 'inline';
+  }
+  // Sync toggle with server-side match mode
+  if (s.match_mode) {
+    currentMatchMode = s.match_mode;
+    applyMatchModeUI(s.match_mode);
+  }
+  document.getElementById('bc-input').focus();
+})();
+</script>
+</body>
+</html>

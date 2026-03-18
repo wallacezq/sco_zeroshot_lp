@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>SmartCart — Settings</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet"/>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:      #06090d;
+  --surf:    #0c1117;
+  --card:    #111922;
+  --border:  #1a2738;
+  --accent:  #00e5a0;
+  --blue:    #29b6f6;
+  --amber:   #ffab40;
+  --red:     #ff4757;
+  --text:    #dde8f5;
+  --muted:   #4a6275;
+  --mono:    'IBM Plex Mono', monospace;
+  --sans:    'Syne', sans-serif;
+  --r:       8px;
+}
+
+html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--sans); }
+
+/* ── Header ──────────────────────────────────────────────────────────── */
+header {
+  background: var(--surf);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 14px;
+  padding: 0 18px; height: 52px;
+}
+.logo { font-weight: 800; font-size: 1.05rem; letter-spacing: .04em; color: var(--accent); }
+.logo span { color: var(--text); }
+.sep { width: 1px; height: 22px; background: var(--border); }
+.page-title { font-weight: 700; font-size: .88rem; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+.spacer { flex: 1; }
+
+.btn-back {
+  font-family: var(--sans); font-weight: 700; font-size: .70rem;
+  letter-spacing: .07em; text-transform: uppercase;
+  padding: 5px 14px; border-radius: 6px; border: 1px solid var(--border);
+  background: transparent; color: var(--text); cursor: pointer;
+  text-decoration: none; display: flex; align-items: center; gap: 6px;
+  transition: border-color .15s;
+}
+.btn-back:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── Main layout ─────────────────────────────────────────────────────── */
+.container {
+  max-width: 960px; margin: 0 auto; padding: 24px 20px;
+}
+
+/* ── Embeddings card ─────────────────────────────────────────────────── */
+.embed-card {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 16px 20px;
+  margin-bottom: 20px; display: flex; align-items: center; gap: 16px;
+}
+.embed-info { flex: 1; }
+.embed-info .label { font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+.embed-info .value { font-family: var(--mono); font-size: .82rem; margin-top: 2px; }
+
+.btn-regen {
+  padding: 8px 18px; background: var(--amber); color: #1a1200;
+  font-family: var(--sans); font-weight: 800; font-size: .72rem;
+  letter-spacing: .06em; text-transform: uppercase;
+  border: none; border-radius: var(--r); cursor: pointer;
+  transition: transform .12s, opacity .15s; white-space: nowrap;
+}
+.btn-regen:active { transform: scale(.95); }
+.btn-regen:disabled { opacity: .4; cursor: default; }
+.regen-status { font-family: var(--mono); font-size: .68rem; color: var(--accent); margin-left: 8px; }
+
+/* ── Toolbar ─────────────────────────────────────────────────────────── */
+.toolbar {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
+}
+.toolbar .sec-lbl {
+  font-size: .68rem; font-weight: 700; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--muted);
+}
+.search-box {
+  flex: 1; background: var(--card); border: 1px solid var(--border);
+  color: var(--text); font-family: var(--mono); font-size: .78rem;
+  padding: 7px 11px; border-radius: var(--r);
+}
+.search-box:focus { outline: none; border-color: var(--blue); }
+.search-box::placeholder { color: var(--muted); }
+
+.btn-add {
+  padding: 7px 14px; background: var(--accent); color: #040c08;
+  font-family: var(--sans); font-weight: 800; font-size: .70rem;
+  letter-spacing: .06em; text-transform: uppercase;
+  border: none; border-radius: var(--r); cursor: pointer;
+  transition: transform .12s;
+}
+.btn-add:active { transform: scale(.95); }
+
+.product-count {
+  font-family: var(--mono); font-size: .68rem; color: var(--muted);
+}
+
+/* ── Product table ───────────────────────────────────────────────────── */
+.table-wrap {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--r); overflow: hidden;
+}
+table {
+  width: 100%; border-collapse: collapse;
+}
+thead th {
+  text-align: left; font-size: .62rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .1em; color: var(--muted);
+  padding: 10px 14px; border-bottom: 1px solid var(--border);
+  background: var(--surf); position: sticky; top: 0;
+}
+tbody td {
+  padding: 8px 14px; border-bottom: 1px solid rgba(26,39,56,.5);
+  font-size: .80rem; vertical-align: middle;
+}
+tbody tr:hover { background: rgba(0,229,160,.03); }
+.bc-cell { font-family: var(--mono); font-size: .74rem; color: var(--blue); }
+.price-cell { font-family: var(--mono); }
+.display-cell { color: var(--muted); font-size: .72rem; }
+
+.act-btn {
+  background: transparent; border: 1px solid var(--border);
+  color: var(--text); font-family: var(--mono); font-size: .65rem;
+  padding: 3px 8px; border-radius: 4px; cursor: pointer;
+  transition: border-color .15s, color .15s; margin-right: 4px;
+}
+.act-btn:hover { border-color: var(--blue); color: var(--blue); }
+.act-btn.del:hover { border-color: var(--red); color: var(--red); }
+
+.scroll-area {
+  max-height: calc(100vh - 260px); overflow-y: auto;
+}
+
+/* ── Modal ────────────────────────────────────────────────────────────── */
+#modal-bg {
+  display: none; position: fixed; inset: 0;
+  background: rgba(6,9,13,.88); z-index: 800;
+  align-items: center; justify-content: center;
+}
+#modal-bg.open { display: flex; }
+.modal-box {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 12px; padding: 24px; width: 380px;
+}
+.modal-title { font-size: 1rem; font-weight: 800; color: var(--accent); margin-bottom: 16px; }
+
+.form-group { margin-bottom: 12px; }
+.form-group label {
+  display: block; font-size: .62rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .1em; color: var(--muted);
+  margin-bottom: 4px;
+}
+.form-group input {
+  width: 100%; background: var(--surf); border: 1px solid var(--border);
+  color: var(--text); font-family: var(--mono); font-size: .82rem;
+  padding: 8px 11px; border-radius: var(--r);
+}
+.form-group input:focus { outline: none; border-color: var(--accent); }
+
+.modal-actions { display: flex; gap: 8px; margin-top: 18px; }
+.btn-modal {
+  flex: 1; padding: 8px; border: none; border-radius: var(--r);
+  font-family: var(--sans); font-weight: 800; font-size: .72rem;
+  letter-spacing: .06em; text-transform: uppercase; cursor: pointer;
+}
+.btn-modal.primary { background: var(--accent); color: #040c08; }
+.btn-modal.cancel  { background: transparent; border: 1px solid var(--border); color: var(--text); }
+.btn-modal.cancel:hover { border-color: var(--red); }
+
+.form-error { font-family: var(--mono); font-size: .68rem; color: var(--red); min-height: 18px; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<header>
+  <a href="/" class="logo" style="text-decoration:none">Smart<span>Cart</span></a>
+  <div class="sep"></div>
+  <span class="page-title">Settings</span>
+  <div class="spacer"></div>
+  <a href="/" class="btn-back">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+    Back
+  </a>
+</header>
+
+<div class="container">
+
+  <!-- Embeddings status + regenerate -->
+  <div class="embed-card">
+    <div class="embed-info">
+      <div class="label">OpenCLIP Label Embeddings</div>
+      <div class="value"><span id="embed-labels">—</span> labels &nbsp;·&nbsp; <span id="embed-file" style="color:var(--muted)">clip_zeroshot_cls.pth</span></div>
+    </div>
+    <button class="btn-regen" id="btn-regen" onclick="regenerateEmbeddings()">⟳ Regenerate</button>
+    <span class="regen-status" id="regen-status"></span>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <span class="sec-lbl">Product Database</span>
+    <span class="product-count" id="product-count"></span>
+    <div class="spacer"></div>
+    <input class="search-box" id="search" type="text" placeholder="Search barcode, name…" oninput="filterTable()"/>
+    <button class="btn-add" onclick="openModal('add')">+ Add Product</button>
+  </div>
+
+  <!-- Product table -->
+  <div class="table-wrap">
+    <div class="scroll-area">
+      <table>
+        <thead>
+          <tr>
+            <th>Barcode</th>
+            <th>Name (CLIP label)</th>
+            <th>Display Name</th>
+            <th>Price</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="product-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Add / Edit modal -->
+<div id="modal-bg" onclick="if(event.target===this)closeModal()">
+  <div class="modal-box">
+    <div class="modal-title" id="modal-title">Add Product</div>
+    <div class="form-group">
+      <label for="m-barcode">Barcode</label>
+      <input id="m-barcode" type="text" placeholder="e.g. 082"/>
+    </div>
+    <div class="form-group">
+      <label for="m-name">Name (hierarchical CLIP label)</label>
+      <input id="m-name" type="text" placeholder="e.g. Fruit/Berry/Strawberry"/>
+    </div>
+    <div class="form-group">
+      <label for="m-price">Price</label>
+      <input id="m-price" type="number" step="0.01" min="0" placeholder="e.g. 2.50"/>
+    </div>
+    <div class="form-error" id="m-error"></div>
+    <div class="modal-actions">
+      <button class="btn-modal cancel" onclick="closeModal()">Cancel</button>
+      <button class="btn-modal primary" id="m-submit" onclick="submitModal()">Add</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let allProducts = [];
+let modalMode = 'add';      // 'add' | 'edit'
+let editBarcode = null;
+
+/* ── API helpers ─────────────────────────────────────────────────── */
+async function api(url, method = 'GET', body = null) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(url, opts);
+  return r.json();
+}
+
+/* ── Load products ───────────────────────────────────────────────── */
+async function loadProducts() {
+  const d = await api('/api/products');
+  if (!d.ok) return;
+  allProducts = d.products;
+  document.getElementById('product-count').textContent = `${d.count} products`;
+  document.getElementById('embed-labels').textContent = d.count;
+  renderTable(allProducts);
+}
+
+function renderTable(products) {
+  const tbody = document.getElementById('product-tbody');
+  tbody.innerHTML = '';
+  for (const p of products) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="bc-cell">${esc(p.barcode)}</td>
+      <td>${esc(p.name)}</td>
+      <td class="display-cell">${esc(p.display_name)}</td>
+      <td class="price-cell">$${Number(p.price).toFixed(2)}</td>
+      <td>
+        <button class="act-btn" onclick="openModal('edit','${esc(p.barcode)}')">Edit</button>
+        <button class="act-btn del" onclick="deleteProduct('${esc(p.barcode)}')">Delete</button>
+      </td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function filterTable() {
+  const q = document.getElementById('search').value.toLowerCase();
+  if (!q) { renderTable(allProducts); return; }
+  renderTable(allProducts.filter(p =>
+    p.barcode.toLowerCase().includes(q) ||
+    p.name.toLowerCase().includes(q) ||
+    p.display_name.toLowerCase().includes(q)
+  ));
+}
+
+/* ── Modal ────────────────────────────────────────────────────────── */
+function openModal(mode, barcode = null) {
+  modalMode = mode;
+  editBarcode = barcode;
+  document.getElementById('m-error').textContent = '';
+
+  const bcInput = document.getElementById('m-barcode');
+
+  if (mode === 'edit' && barcode) {
+    const p = allProducts.find(x => x.barcode === barcode);
+    if (!p) return;
+    document.getElementById('modal-title').textContent = `Edit Product — ${barcode}`;
+    document.getElementById('m-submit').textContent = 'Save';
+    bcInput.value = p.barcode;
+    bcInput.disabled = true;
+    document.getElementById('m-name').value = p.name;
+    document.getElementById('m-price').value = p.price;
+  } else {
+    document.getElementById('modal-title').textContent = 'Add Product';
+    document.getElementById('m-submit').textContent = 'Add';
+    bcInput.value = '';
+    bcInput.disabled = false;
+    document.getElementById('m-name').value = '';
+    document.getElementById('m-price').value = '';
+  }
+  document.getElementById('modal-bg').classList.add('open');
+  (mode === 'edit' ? document.getElementById('m-name') : bcInput).focus();
+}
+
+function closeModal() {
+  document.getElementById('modal-bg').classList.remove('open');
+}
+
+async function submitModal() {
+  const barcode = document.getElementById('m-barcode').value.trim();
+  const name    = document.getElementById('m-name').value.trim();
+  const price   = document.getElementById('m-price').value;
+  const errEl   = document.getElementById('m-error');
+  errEl.textContent = '';
+
+  if (!barcode || !name || price === '') {
+    errEl.textContent = 'All fields are required';
+    return;
+  }
+
+  let d;
+  if (modalMode === 'edit') {
+    d = await api(`/api/products/${encodeURIComponent(barcode)}`, 'PUT', { name, price: parseFloat(price) });
+  } else {
+    d = await api('/api/products', 'POST', { barcode, name, price: parseFloat(price) });
+  }
+
+  if (!d.ok) {
+    errEl.textContent = d.error || 'Request failed';
+    return;
+  }
+
+  closeModal();
+  loadProducts();
+}
+
+/* ── Delete ───────────────────────────────────────────────────────── */
+async function deleteProduct(barcode) {
+  if (!confirm(`Delete product ${barcode}?`)) return;
+  const d = await api(`/api/products/${encodeURIComponent(barcode)}`, 'DELETE');
+  if (d.ok) loadProducts();
+}
+
+/* ── Regenerate embeddings ───────────────────────────────────────── */
+async function regenerateEmbeddings() {
+  const btn = document.getElementById('btn-regen');
+  const status = document.getElementById('regen-status');
+  btn.disabled = true;
+  status.textContent = 'Regenerating…';
+  status.style.color = 'var(--amber)';
+
+  try {
+    const d = await api('/api/embeddings/regenerate', 'POST');
+    if (d.ok) {
+      status.textContent = `Done — ${d.clip_labels} labels`;
+      status.style.color = 'var(--accent)';
+      document.getElementById('embed-labels').textContent = d.vocab_size;
+    } else {
+      status.textContent = d.error || 'Failed';
+      status.style.color = 'var(--red)';
+    }
+  } catch (e) {
+    status.textContent = 'Error: ' + e.message;
+    status.style.color = 'var(--red)';
+  }
+  btn.disabled = false;
+}
+
+/* ── Init ─────────────────────────────────────────────────────────── */
+loadProducts();
+</script>
+</body>
+</html>

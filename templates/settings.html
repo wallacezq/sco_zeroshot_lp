@@ -178,6 +178,22 @@ tbody tr:hover { background: rgba(0,229,160,.03); }
 .btn-modal.cancel:hover { border-color: var(--red); }
 
 .form-error { font-family: var(--mono); font-size: .68rem; color: var(--red); min-height: 18px; margin-top: 4px; }
+.form-hint { font-family: var(--mono); font-size: .62rem; color: var(--muted); min-height: 16px; margin-top: 3px; }
+.form-hint.invalid { color: var(--red); }
+.form-hint.valid { color: var(--accent); }
+
+/* Tooltip */
+.tooltip { position: relative; cursor: help; font-size: .72rem; color: var(--blue); margin-left: 4px; }
+.tooltip .tooltip-text {
+  visibility: hidden; opacity: 0;
+  position: absolute; bottom: 125%; left: 50%; transform: translateX(-50%);
+  background: var(--surf); border: 1px solid var(--border);
+  color: var(--text); font-family: var(--mono); font-size: .65rem;
+  padding: 10px 12px; border-radius: 6px; width: 280px;
+  line-height: 1.5; z-index: 900; pointer-events: none;
+  transition: opacity .15s;
+}
+.tooltip:hover .tooltip-text { visibility: visible; opacity: 1; }
 </style>
 </head>
 <body>
@@ -242,8 +258,13 @@ tbody tr:hover { background: rgba(0,229,160,.03); }
       <input id="m-barcode" type="text" placeholder="e.g. 082"/>
     </div>
     <div class="form-group">
-      <label for="m-name">Name (hierarchical CLIP label)</label>
+      <label for="m-name">Name (hierarchical CLIP label)
+        <span class="tooltip">&#9432;
+          <span class="tooltip-text">Format: Category/SubCategory/Name<br>Use at least 2 segments separated by &lsquo;/&rsquo;.<br>Each segment: letters, digits, hyphens, spaces.<br>Examples:<br>&bull; Fruit/Apple/Granny-Smith<br>&bull; Vegetables/Pepper/Red-Bell-Pepper<br>&bull; Packages/Juice/Tropicana-Apple-Juice</span>
+        </span>
+      </label>
       <input id="m-name" type="text" placeholder="e.g. Fruit/Berry/Strawberry"/>
+      <div class="form-hint" id="m-name-hint"></div>
     </div>
     <div class="form-group">
       <label for="m-price">Price</label>
@@ -347,6 +368,25 @@ function closeModal() {
   document.getElementById('modal-bg').classList.remove('open');
 }
 
+const LABEL_RE = /^[A-Za-z0-9][A-Za-z0-9 -]*(\/[A-Za-z0-9][A-Za-z0-9 -]*)+$/;
+
+function validateLabel(name) {
+  if (!name) return 'Name is required';
+  if (name.length > 200) return 'Label too long (max 200 chars)';
+  if (!LABEL_RE.test(name)) return 'Must be Category/Name format (e.g. Fruit/Apple/Granny-Smith)';
+  return null;
+}
+
+// Live validation hint on the name field
+document.getElementById('m-name').addEventListener('input', function() {
+  const hint = document.getElementById('m-name-hint');
+  const v = this.value.trim();
+  if (!v) { hint.textContent = ''; hint.className = 'form-hint'; return; }
+  const err = validateLabel(v);
+  if (err) { hint.textContent = err; hint.className = 'form-hint invalid'; }
+  else { hint.textContent = '\u2713 Valid format'; hint.className = 'form-hint valid'; }
+});
+
 async function submitModal() {
   const barcode = document.getElementById('m-barcode').value.trim();
   const name    = document.getElementById('m-name').value.trim();
@@ -356,6 +396,11 @@ async function submitModal() {
 
   if (!barcode || !name || price === '') {
     errEl.textContent = 'All fields are required';
+    return;
+  }
+  const labelErr = validateLabel(name);
+  if (labelErr) {
+    errEl.textContent = labelErr;
     return;
   }
 

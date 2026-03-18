@@ -11,14 +11,24 @@
 #
 # Barcodes are zero-padded sequential strings (001 … 083).
 # Short 4-digit demo barcodes are provided for a representative cross-section.
+#
+# Persistence: the database is saved to PRODUCTS_JSON on every mutation.
+# On startup, if that file exists it is loaded instead of the defaults below.
 # ─────────────────────────────────────────────────────────────────────────────
+
+import json
+from pathlib import Path
+
+PRODUCTS_JSON = Path("products.json")
+
 
 def _db_entry(name: str, price: float) -> dict:
     """Build a DB entry, deriving display_name from the last '/'-delimited segment."""
     return {"name": name, "display_name": name.split("/")[-1], "price": price}
 
 
-PRODUCT_DB: dict[str, dict] = {
+# ── Default products (used when products.json doesn't exist yet) ─────────────
+_DEFAULT_PRODUCT_DB: dict[str, dict] = {
     # ── Fruit ────────────────────────────────────────────────────────────────
     "001": _db_entry("Fruit/Apple/Golden-Delicious",              1.20),
     "002": _db_entry("Fruit/Apple/Granny-Smith",                  1.20),
@@ -107,6 +117,33 @@ PRODUCT_DB: dict[str, dict] = {
     "080": _db_entry("Vegetables/Tomato/Vine-Tomato",            1.20),
     "081": _db_entry("Vegetables/Zucchini",                      0.90),
 }
+
+
+# ── Load / save ──────────────────────────────────────────────────────────────
+def _load_products() -> dict[str, dict]:
+    """Load from products.json if it exists, otherwise use defaults."""
+    if PRODUCTS_JSON.exists():
+        try:
+            with open(PRODUCTS_JSON, "r") as f:
+                raw = json.load(f)
+            # Rebuild with _db_entry to ensure display_name is consistent
+            return {bc: _db_entry(v["name"], v["price"]) for bc, v in raw.items()}
+        except Exception as e:
+            print(f"[WARN] Failed to load {PRODUCTS_JSON}, using defaults: {e}")
+    return dict(_DEFAULT_PRODUCT_DB)
+
+
+def save_products() -> None:
+    """Persist the current PRODUCT_DB to products.json."""
+    data = {
+        bc: {"name": v["name"], "price": v["price"]}
+        for bc, v in PRODUCT_DB.items()
+    }
+    with open(PRODUCTS_JSON, "w") as f:
+        json.dump(data, f, indent=2, sort_keys=True)
+
+
+PRODUCT_DB: dict[str, dict] = _load_products()
 
 # ALL_PRODUCT_NAMES  – full-path names fed to OpenCLIP (one per unique product)
 ALL_PRODUCT_NAMES: list[str] = sorted({p["name"] for p in PRODUCT_DB.values()})

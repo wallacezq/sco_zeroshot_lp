@@ -33,6 +33,7 @@ OpenCLIP model
 """
 
 import base64
+import re
 import time
 import threading
 import random
@@ -234,7 +235,7 @@ except ImportError:
 
 app = Flask(__name__)
 
-from products import PRODUCT_DB, ALL_PRODUCT_NAMES, PRODUCT_DISPLAY_NAMES, _db_entry
+from products import PRODUCT_DB, ALL_PRODUCT_NAMES, PRODUCT_DISPLAY_NAMES, _db_entry, save_products
 
 # Build CLIP text embeddings for the initial product vocabulary.
 # This is a no-op when CLIP is unavailable; safe to call at import time.
@@ -1142,6 +1143,21 @@ def settings_page():
     return render_template("settings.html")
 
 
+# Label must be Category/SubCategory/Name — 2-10 slash-separated segments,
+# each segment: letters, digits, hyphens, spaces (no leading/trailing slash).
+_LABEL_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9 -]*(/[A-Za-z0-9][A-Za-z0-9 -]*)+$')
+_LABEL_MAX_LEN = 200
+
+def _validate_label(name: str) -> str | None:
+    """Return an error message if the label is invalid, else None."""
+    if len(name) > _LABEL_MAX_LEN:
+        return f"Label too long (max {_LABEL_MAX_LEN} chars)"
+    if not _LABEL_RE.match(name):
+        return ("Label must be in Category/Name format (e.g. Fruit/Apple/Granny-Smith). "
+                "Use letters, digits, hyphens, and spaces. At least 2 segments separated by '/'.")
+    return None
+
+
 @app.route("/api/products", methods=["GET"])
 def list_products():
     """Return full product database."""
@@ -1162,6 +1178,9 @@ def create_product():
 
     if not barcode or not name or price is None:
         return jsonify({"ok": False, "error": "barcode, name, and price are required"}), 400
+    label_err = _validate_label(name)
+    if label_err:
+        return jsonify({"ok": False, "error": label_err}), 400
     try:
         price = round(float(price), 2)
     except (ValueError, TypeError):
@@ -1177,6 +1196,7 @@ def create_product():
         ALL_PRODUCT_NAMES.append(full_name)
         ALL_PRODUCT_NAMES.sort()
     PRODUCT_DISPLAY_NAMES[full_name] = PRODUCT_DB[barcode]["display_name"]
+    save_products()
 
     return jsonify({"ok": True, "product": {"barcode": barcode, **PRODUCT_DB[barcode]}})
 
@@ -1191,6 +1211,9 @@ def update_product(barcode):
     old_name = PRODUCT_DB[barcode]["name"]
 
     new_name  = data.get("name", old_name).strip()
+    label_err = _validate_label(new_name)
+    if label_err:
+        return jsonify({"ok": False, "error": label_err}), 400
     new_price = data.get("price", PRODUCT_DB[barcode]["price"])
     try:
         new_price = round(float(new_price), 2)
@@ -1210,6 +1233,7 @@ def update_product(barcode):
         ALL_PRODUCT_NAMES.append(full_name)
         ALL_PRODUCT_NAMES.sort()
     PRODUCT_DISPLAY_NAMES[full_name] = PRODUCT_DB[barcode]["display_name"]
+    save_products()
 
     return jsonify({"ok": True, "product": {"barcode": barcode, **PRODUCT_DB[barcode]}})
 
@@ -1229,6 +1253,7 @@ def delete_product(barcode):
         if removed_name in ALL_PRODUCT_NAMES:
             ALL_PRODUCT_NAMES.remove(removed_name)
         PRODUCT_DISPLAY_NAMES.pop(removed_name, None)
+    save_products()
 
     return jsonify({"ok": True, "removed": {"barcode": barcode, **removed}})
 

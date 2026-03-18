@@ -55,6 +55,9 @@ Verdicts: **match**, **substitution**, **no_item**, **verify_miss**, **verify_cl
 - **Shopping cart** — full cart management with quantity controls and totals
 - **Fraud audit log** — timestamped event log of all scan verdicts
 - **Configurable match mode** — switch between top-1 and top-5 at runtime
+- **Settings page** — web UI for managing the product database (create, edit, delete) and regenerating CLIP embeddings
+- **Persistent product database** — changes are saved to `products.json` and survive server restarts
+- **Input validation** — label format enforced as `Category/SubCategory/Name` with live feedback
 
 ## Product Database
 
@@ -66,6 +69,10 @@ Verdicts: **match**, **substitution**, **no_item**, **verify_miss**, **verify_cl
 | Juice (10) | Tropicana, God Morgon, Bravo (apple/orange/grapefruit) |
 | Dairy (21) | Milk, Yoghurt, Sour Cream, Oat Milk, Soy Milk, Soyghurt |
 | Vegetables (22) | Bell Peppers (4 colours), Potatoes (3 types), Tomatoes (3 types), … |
+
+The database is persisted to `products.json`. On first run the hardcoded defaults are used; once any change is made via the settings page or API, `products.json` takes precedence on subsequent startups.
+
+Product labels follow the hierarchical format `Category/SubCategory/Name` (e.g. `Fruit/Apple/Granny-Smith`). This format is validated both client-side and server-side.
 
 ## Requirements
 
@@ -104,6 +111,11 @@ The server starts at **http://0.0.0.0:5000**. Open a browser to access the UI.
 | `GET`  | `/api/status` | System status (models, camera, config) |
 | `GET`  | `/api/match_mode` | Get current match mode |
 | `POST` | `/api/match_mode` | Set match mode (`top1` / `top5`) |
+| `GET`  | `/api/products` | List all products in the database |
+| `POST` | `/api/products` | Add a new product (barcode, name, price) |
+| `PUT`  | `/api/products/<barcode>` | Update a product's name or price |
+| `DELETE` | `/api/products/<barcode>` | Remove a product |
+| `POST` | `/api/embeddings/regenerate` | Delete cached embeddings and rebuild from current vocabulary |
 
 ## Configuration
 
@@ -112,6 +124,14 @@ The server starts at **http://0.0.0.0:5000**. Open a browser to access the UI.
 | `CONF_THRESHOLD` | `0.25` | YOLO-World detection confidence threshold |
 | `TAX_RATE` | `0.06` | Tax rate applied at checkout |
 | `MATCH_MODE` | `"top1"` | Fraud matching mode (`top1` or `top5`) |
+
+## Settings Page
+
+Accessible via the gear icon in the main UI header, or directly at `/settings`. Provides:
+
+- **Product table** — searchable list of all products with barcode, CLIP label, display name, and price
+- **Add / Edit / Delete** — modal form with live label format validation and tooltips
+- **Regenerate Embeddings** — deletes the cached `clip_zeroshot_cls.pth` and rebuilds CLIP text embeddings from the current product vocabulary
 
 ## Models
 

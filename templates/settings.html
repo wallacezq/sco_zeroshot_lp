@@ -256,6 +256,7 @@ tbody tr:hover { background: rgba(0,229,160,.03); }
     <div class="form-group">
       <label for="m-barcode">Barcode</label>
       <input id="m-barcode" type="text" placeholder="e.g. 082"/>
+      <div class="form-hint" id="m-barcode-hint"></div>
     </div>
     <div class="form-group">
       <label for="m-name">Name (hierarchical CLIP label)
@@ -368,6 +369,20 @@ function closeModal() {
   document.getElementById('modal-bg').classList.remove('open');
 }
 
+// Live barcode uniqueness check
+document.getElementById('m-barcode').addEventListener('input', function() {
+  const hint = document.getElementById('m-barcode-hint');
+  const v = this.value.trim();
+  if (!v || modalMode === 'edit') { hint.textContent = ''; hint.className = 'form-hint'; return; }
+  if (allProducts.some(p => p.barcode === v)) {
+    hint.textContent = 'Barcode already exists';
+    hint.className = 'form-hint invalid';
+  } else {
+    hint.textContent = '\u2713 Available';
+    hint.className = 'form-hint valid';
+  }
+});
+
 const LABEL_RE = /^[A-Za-z0-9][A-Za-z0-9 -]*(\/[A-Za-z0-9][A-Za-z0-9 -]*)+$/;
 
 function validateLabel(name) {
@@ -401,6 +416,10 @@ async function submitModal() {
   const labelErr = validateLabel(name);
   if (labelErr) {
     errEl.textContent = labelErr;
+    return;
+  }
+  if (modalMode === 'add' && allProducts.some(p => p.barcode === barcode)) {
+    errEl.textContent = 'Barcode already exists';
     return;
   }
 

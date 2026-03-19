@@ -6,9 +6,10 @@ Classifier       : OpenCLIP  DFN5B-CLIP_ViT-H-14-378  (zero-shot)
 ─────────────────────────────────────────────────────────────────
 Two-stage pipeline
 ──────────────────
-Stage 1 – YOLO-World detects every "picked_up_object" in the frame.
-           A single open-vocabulary class is used so the detector fires on
-           any hand-held object regardless of category.
+Stage 1 – YOLO-World detects objects in the frame using multiple
+           open-vocabulary class prompts (e.g. "product", "fruit",
+           "grocery item") so the detector fires on any hand-held
+           object regardless of category.
 
 Stage 2 – For EACH detected bounding box:
            a. Copy the original frame.
@@ -246,6 +247,21 @@ app = Flask(__name__)
 
 from products import PRODUCT_DB, ALL_PRODUCT_NAMES, PRODUCT_DISPLAY_NAMES, _db_entry, save_products
 
+# Multiple descriptive prompts for YOLO-World detection (Stage 1).
+# Concrete nouns work far better than abstract terms with YOLO-World's
+# visual-language encoder.  Any match fires a detection; the actual product
+# identification is handled by OpenCLIP in Stage 2.
+DETECTION_CLASSES = [
+    "product",
+    "grocery item",
+    "fruit",
+    "vegetable",
+    "bottle",
+    "package",
+    "food item",
+    "object in hand",
+]
+
 # Build CLIP text embeddings for the initial product vocabulary.
 # This is a no-op when CLIP is unavailable; safe to call at import time.
 rebuild_clip_text_features(ALL_PRODUCT_NAMES)
@@ -348,8 +364,8 @@ def grab_frame():
 def load_model(weights: str = "yolov8m-worldv2.pt") -> bool:
     """
     Load a YOLO-World checkpoint.
-    The model is always queried with the single open-vocab class
-    "picked_up_object"; OpenCLIP DFN5B handles zero-shot classification.
+    The model is always queried with multiple open-vocab detection classes;
+    OpenCLIP DFN5B handles zero-shot classification.
     """
     global model
     if not YOLO_AVAILABLE:
@@ -357,10 +373,10 @@ def load_model(weights: str = "yolov8m-worldv2.pt") -> bool:
     try:
         with model_lock:
             m = YOLOWorld(weights)
-            m.set_classes(["picked_up_object"])   # single detection class
+            m.set_classes(DETECTION_CLASSES)
             model = m
         print(f"[INFO] YOLO-World loaded: {weights}")
-        print(f"[INFO] Detection class: 'picked_up_object'")
+        print(f"[INFO] Detection classes: {DETECTION_CLASSES}")
         print(f"[INFO] Classifier: OpenCLIP {_CLIP_MODEL_NAME}/{_CLIP_PRETRAINED}"
               f"  (available={CLIP_AVAILABLE})")
         return True
@@ -392,9 +408,10 @@ def run_yolo_world(frame, classes: list[str] | None = None) -> list[dict]:
     """
     Two-stage pipeline
     ──────────────────
-    Stage 1 – YOLO-World detects every "picked_up_object" in the frame.
-              `classes` parameter is IGNORED – we always use the single open-
-              vocabulary class so the detector fires on ANY hand-held object.
+    Stage 1 – YOLO-World detects objects using multiple open-vocabulary
+              prompts (DETECTION_CLASSES). `classes` parameter is IGNORED –
+              we always use the fixed prompt list so the detector fires on
+              ANY hand-held object.
 
     Stage 2 – For each detected box, a clean copy of the original frame is
               made, the red bounding box is drawn on it, and the full
@@ -405,23 +422,23 @@ def run_yolo_world(frame, classes: list[str] | None = None) -> list[dict]:
     Returns list of dicts:
       {label, conf, yolo_conf, clip_conf, box}
     """
-    DETECTION_CLASS = ["picked_up_object"]   # YOLO-World open-vocab prompt
-
     # ── Stage 1: YOLO-World detection ────────────────────────────────────────
     if not YOLO_AVAILABLE or model is None:
-        raw_boxes = _fake_single(frame, DETECTION_CLASS)
+        raw_boxes = _fake_single(frame, DETECTION_CLASSES)
     else:
         with model_lock:
-            model.set_classes(DETECTION_CLASS)
+            model.set_classes(DETECTION_CLASSES)
             results = model.predict(frame, conf=CONF_THRESHOLD, verbose=False)
 
         result    = results[0]
         raw_boxes = []
         for box in result.boxes:
             yolo_conf = float(box.conf[0])
+            cls_id    = int(box.cls[0])
+            cls_name  = DETECTION_CLASSES[cls_id] if cls_id < len(DETECTION_CLASSES) else "object"
             x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
             raw_boxes.append({
-                "label":      "picked_up_object",   # placeholder
+                "label":      cls_name,
                 "conf":       round(yolo_conf, 2),
                 "yolo_conf":  round(yolo_conf, 2),
                 "box":        [x1, y1, x2, y2],
@@ -540,7 +557,7 @@ def capture_and_evaluate(expected_name: str, barcode: str) -> dict:
     """
     Called on every barcode scan.
 
-    Detection:      YOLO-World with class "picked_up_object"
+    Detection:      YOLO-World with multiple open-vocabulary prompts
     Classification: OpenCLIP DFN5B-CLIP_ViT-H-14-378 zero-shot (top-5 stored)
     Verdict:        controlled by MATCH_MODE
       "top1" → expected_name must match the #1 CLIP prediction
@@ -557,7 +574,7 @@ def capture_and_evaluate(expected_name: str, barcode: str) -> dict:
     top1_label   = detections[0]["label"]              if detections else ""
     top1_conf    = detections[0]["conf"]               if detections else 0.0
     top_preds    = detections[0].get("top_preds", [])  if detections else []
-    classes      = ["picked_up_object"]
+    classes      = DETECTION_CLASSES
 
     # Display-friendly name for verdict messages (last path segment)
     display_name = expected_name.split("/")[-1]
@@ -646,7 +663,7 @@ def capture_and_evaluate(expected_name: str, barcode: str) -> dict:
 def verify_bagging_area() -> dict:
     """
     Manual verify: detect ALL hand-held objects with YOLO-World
-    ("picked_up_object"), classify each with OpenCLIP DFN5B,
+    (multiple detection prompts), classify each with OpenCLIP DFN5B,
     and flag anything whose CLIP label is not already in the cart.
     """
     global last_snap, active_alert
@@ -655,8 +672,8 @@ def verify_bagging_area() -> dict:
     if frame is None:
         return {"verdict": "error", "msg": "Camera unavailable"}
 
-    detections = run_yolo_world(frame)   # uses "picked_up_object"
-    classes    = ["picked_up_object"]
+    detections = run_yolo_world(frame)
+    classes    = DETECTION_CLASSES
 
     # Which product full-path names are already in the cart?
     with state_lock:
@@ -744,7 +761,7 @@ def _live_detection_loop():
 
     Pipeline per frame
     ──────────────────
-    1. YOLO-World detects every "picked_up_object" → raw boxes + confidences.
+    1. YOLO-World detects objects using multiple prompts → raw boxes + confidences.
     2. Detections are formatted as an (N, 6) numpy array [x1,y1,x2,y2,conf,cls]
        and passed to ByteTrack.update().
     3. ByteTrack returns active tracks as (M, 7) [x1,y1,x2,y2,track_id,conf,cls].
@@ -755,7 +772,6 @@ def _live_detection_loop():
     OpenCLIP classification is NOT called here — it only happens on explicit
     scan/verify events to keep the stream fast.
     """
-    DETECTION_CLASS = ["picked_up_object"]
     LIVE_CONF       = 0.20   # slightly lower threshold for live view
     INFERENCE_DELAY = 0.08   # ~12 fps inference cadence
 
@@ -768,15 +784,20 @@ def _live_detection_loop():
         try:
             # ── Stage 1: YOLO-World detection ────────────────────────────────
             with model_lock:
-                model.set_classes(DETECTION_CLASS)
+                model.set_classes(DETECTION_CLASSES)
                 results = model.predict(frame, conf=LIVE_CONF, verbose=False)
 
             # Build (N, 6) array: [x1, y1, x2, y2, conf, cls_id]
             raw = []
+            det_labels = []   # parallel list of human-readable class names
             for box in results[0].boxes:
                 x1, y1, x2, y2 = box.xyxy[0].tolist()
                 conf = float(box.conf[0])
-                raw.append([x1, y1, x2, y2, conf, 0])   # cls_id=0 (single class)
+                cls_id = int(box.cls[0])
+                raw.append([x1, y1, x2, y2, conf, cls_id])
+                det_labels.append(
+                    DETECTION_CLASSES[cls_id] if cls_id < len(DETECTION_CLASSES) else "object"
+                )
 
             # ── Stage 2: ByteTrack update ────────────────────────────────────
             if _tracker is not None:
@@ -794,10 +815,13 @@ def _live_detection_loop():
                 x1, y1, x2, y2 = int(t[0]), int(t[1]), int(t[2]), int(t[3])
                 track_id       = int(t[4])
                 conf           = round(float(t[5]), 2)
+                cls_id         = int(t[6]) if len(t) > 6 else 0
+                det_label      = DETECTION_CLASSES[cls_id] if cls_id < len(DETECTION_CLASSES) else "object"
                 tracked_boxes.append({
                     "box":       [x1, y1, x2, y2],
                     "yolo_conf": conf,
                     "track_id":  track_id,
+                    "det_label": det_label,
                 })
 
             with live_boxes_lock:
@@ -868,9 +892,10 @@ def frame_generator():
             # Bounding box in track colour
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
 
-            # Label: "ID 3 · picked_up_object  82%"
+            # Label: "ID 3 · fruit  82%"
             tid_str = f"ID {track_id}" if track_id >= 0 else "untracked"
-            tag     = f"{tid_str}  \u00b7  picked_up_object  {conf:.0%}"
+            det_label = det.get("det_label", "object")
+            tag     = f"{tid_str}  \u00b7  {det_label}  {conf:.0%}"
             (tw, th), _ = cv2.getTextSize(tag, FONT, 0.46, 1)
             pad  = 3
             lx1  = x1
@@ -940,7 +965,7 @@ def start_pipeline():
         "openclip":         CLIP_AVAILABLE,
         "clip_model":       f"{_CLIP_MODEL_NAME}/{_CLIP_PRETRAINED}" if CLIP_AVAILABLE else None,
         "clip_labels":      len(_clip_text_labels),
-        "detection_class":  "picked_up_object",
+        "detection_class":  DETECTION_CLASSES,
         "product_vocab":    ALL_PRODUCT_NAMES,
         "vocab_size":       len(ALL_PRODUCT_NAMES),
     })
@@ -1081,7 +1106,7 @@ def add_to_vocab():
     Dynamically add a new product name to the zero-shot vocabulary at runtime.
     No retraining needed — both YOLO-World and OpenCLIP DFN5B will recognise
     the new label on the next scan: YOLO-World via set_classes (already using
-    the fixed "picked_up_object" class, so no change needed there), and
+    the fixed detection class prompts, so no change needed there), and
     OpenCLIP via a fresh rebuild of the cached text embeddings.
     """
     data = request.get_json(silent=True) or {}
@@ -1110,7 +1135,7 @@ def get_status():
         "clip_model":       f"{_CLIP_MODEL_NAME}/{_CLIP_PRETRAINED}" if CLIP_AVAILABLE else None,
         "clip_labels":      len(_clip_text_labels),
         "bytetrack":        BYTETRACK_AVAILABLE,
-        "detection_class":  "picked_up_object",
+        "detection_class":  DETECTION_CLASSES,
         "match_mode":       MATCH_MODE,
         "vocab_size":       len(ALL_PRODUCT_NAMES),
         "conf_threshold":   CONF_THRESHOLD,

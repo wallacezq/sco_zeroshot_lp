@@ -76,6 +76,30 @@ header {
 .btn-regen:disabled { opacity: .4; cursor: default; }
 .regen-status { font-family: var(--mono); font-size: .68rem; color: var(--accent); margin-left: 8px; }
 
+/* Progress spinner */
+.regen-spinner {
+  position: relative; width: 48px; height: 48px;
+  display: none; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.regen-spinner.active { display: flex; }
+.progress-ring { width: 48px; height: 48px; transform: rotate(-90deg); }
+.progress-ring-bg {
+  fill: none; stroke: var(--border); stroke-width: 4;
+}
+.progress-ring-fill {
+  fill: none; stroke: var(--accent); stroke-width: 4;
+  stroke-linecap: round;
+  stroke-dasharray: 138.23; /* 2 * π * 22 */
+  stroke-dashoffset: 138.23;
+  transition: stroke-dashoffset 0.3s ease;
+}
+.progress-pct {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono); font-size: .58rem; font-weight: 700;
+  color: var(--accent);
+}
+
 /* ── Toolbar ─────────────────────────────────────────────────────────── */
 .toolbar {
   display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
@@ -218,6 +242,13 @@ tbody tr:hover { background: rgba(0,229,160,.03); }
       <div class="value"><span id="embed-labels">—</span> labels &nbsp;·&nbsp; <span id="embed-file" style="color:var(--muted)">clip_zeroshot_cls.pth</span></div>
     </div>
     <button class="btn-regen" id="btn-regen" onclick="regenerateEmbeddings()">⟳ Regenerate</button>
+    <div class="regen-spinner" id="regen-spinner">
+      <svg class="progress-ring" viewBox="0 0 52 52">
+        <circle class="progress-ring-bg" cx="26" cy="26" r="22"/>
+        <circle class="progress-ring-fill" id="progress-ring-fill" cx="26" cy="26" r="22"/>
+      </svg>
+      <span class="progress-pct" id="progress-pct">0%</span>
+    </div>
     <span class="regen-status" id="regen-status"></span>
   </div>
 
@@ -447,15 +478,51 @@ async function deleteProduct(barcode) {
 }
 
 /* ── Regenerate embeddings ───────────────────────────────────────── */
+let pollTimer = null;
+
+function setProgress(pct) {
+  const circle = document.getElementById('progress-ring-fill');
+  const label  = document.getElementById('progress-pct');
+  const circumference = 2 * Math.PI * 22; // r=22
+  const offset = circumference - (pct / 100) * circumference;
+  circle.style.strokeDashoffset = offset;
+  label.textContent = `${Math.round(pct)}%`;
+}
+
+function startPolling() {
+  const spinner = document.getElementById('regen-spinner');
+  spinner.classList.add('active');
+  setProgress(0);
+  pollTimer = setInterval(async () => {
+    try {
+      const d = await api('/api/embeddings/progress');
+      setProgress(d.percent);
+      if (!d.running && d.current >= d.total && d.total > 0) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    } catch (_) {}
+  }, 300);
+}
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  const spinner = document.getElementById('regen-spinner');
+  setProgress(100);
+  setTimeout(() => spinner.classList.remove('active'), 800);
+}
+
 async function regenerateEmbeddings() {
   const btn = document.getElementById('btn-regen');
   const status = document.getElementById('regen-status');
   btn.disabled = true;
-  status.textContent = 'Regenerating…';
-  status.style.color = 'var(--amber)';
+  status.textContent = '';
+
+  startPolling();
 
   try {
     const d = await api('/api/embeddings/regenerate', 'POST');
+    stopPolling();
     if (d.ok) {
       status.textContent = `Done — ${d.clip_labels} labels`;
       status.style.color = 'var(--accent)';
@@ -465,6 +532,7 @@ async function regenerateEmbeddings() {
       status.style.color = 'var(--red)';
     }
   } catch (e) {
+    stopPolling();
     status.textContent = 'Error: ' + e.message;
     status.style.color = 'var(--red)';
   }

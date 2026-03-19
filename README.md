@@ -9,7 +9,7 @@ Camera Frame
     │
     ▼
 ┌──────────────────────────────┐
-│  Stage 1: YOLO-World         │   Detects any "object_held_at_hand"
+│  Stage 1: YOLO-World         │   Detects any "picked_up_object"
 │  (open-vocabulary detector)  │   in the frame (single class prompt)
 └──────────┬───────────────────┘
            │  bounding boxes
@@ -28,7 +28,7 @@ Camera Frame
 
 ### Detection (Stage 1)
 
-**YOLO-World** runs with a single open-vocabulary class — `"object_held_at_hand"` — so the detector fires on any hand-held object regardless of product category. Bounding boxes are tracked across frames using **BoxMOT ByteTrack** for stable IDs in the live view.
+**YOLO-World** runs with a single open-vocabulary class — `"picked_up_object"` — so the detector fires on any hand-held object regardless of product category. Bounding boxes are tracked across frames using **BoxMOT ByteTrack** for stable IDs in the live view.
 
 ### Classification (Stage 2)
 

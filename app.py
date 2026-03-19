@@ -6,7 +6,7 @@ Classifier       : OpenCLIP  DFN5B-CLIP_ViT-H-14-378  (zero-shot)
 ─────────────────────────────────────────────────────────────────
 Two-stage pipeline
 ──────────────────
-Stage 1 – YOLO-World detects every "object_held_at_hand" in the frame.
+Stage 1 – YOLO-World detects every "picked_up_object" in the frame.
            A single open-vocabulary class is used so the detector fires on
            any hand-held object regardless of category.
 
@@ -117,6 +117,10 @@ except Exception as _clip_err:
     print(f"[WARN] OpenCLIP unavailable – classifier disabled. ({_clip_err})")
 
 
+# Embedding regeneration progress — polled by the settings UI
+_embed_progress = {"running": False, "current": 0, "total": 0}
+
+
 def rebuild_clip_text_features(labels: list[str]) -> None:
     """
     Encode `labels` as CLIP text embeddings and cache them.
@@ -144,8 +148,10 @@ def rebuild_clip_text_features(labels: list[str]) -> None:
         _clip_text_features = torch.load("clip_zeroshot_cls.pth", map_location="cpu")
         _clip_text_labels   = list(labels)
     else:
+        _embed_progress.update({"running": True, "current": 0, "total": len(labels)})
         try:
-            for label in tqdm(labels):
+            for i, label in enumerate(tqdm(labels)):
+                _embed_progress["current"] = i
             #prompts = [f"a photo of a {lbl}" for lbl in labels]
                 prompts = [template.format(label=label) for template in class_templates]
                 texts = _clip_processor(text=prompts, return_tensors="pt", padding=True)
@@ -159,9 +165,12 @@ def rebuild_clip_text_features(labels: list[str]) -> None:
             _clip_text_features = zeroshot_weights
             _clip_text_labels   = list(labels)
             torch.save(_clip_text_features, zeroshot_weights_pth)
+            _embed_progress["current"] = len(labels)
             print(f"[INFO] CLIP text features built for {len(labels)} labels: {labels}")
         except Exception as exc:
             print(f"[WARN] rebuild_clip_text_features error: {exc}")
+        finally:
+            _embed_progress["running"] = False
 
         print(f"[INFO] zeroshot_weights's shape: {zeroshot_weights.shape}")
         print(f"[INFO] zeroshot_weights: {zeroshot_weights}")
@@ -340,7 +349,7 @@ def load_model(weights: str = "yolov8m-worldv2.pt") -> bool:
     """
     Load a YOLO-World checkpoint.
     The model is always queried with the single open-vocab class
-    "object_held_at_hand"; OpenCLIP DFN5B handles zero-shot classification.
+    "picked_up_object"; OpenCLIP DFN5B handles zero-shot classification.
     """
     global model
     if not YOLO_AVAILABLE:
@@ -348,10 +357,10 @@ def load_model(weights: str = "yolov8m-worldv2.pt") -> bool:
     try:
         with model_lock:
             m = YOLOWorld(weights)
-            m.set_classes(["object_held_at_hand"])   # single detection class
+            m.set_classes(["picked_up_object"])   # single detection class
             model = m
         print(f"[INFO] YOLO-World loaded: {weights}")
-        print(f"[INFO] Detection class: 'object_held_at_hand'")
+        print(f"[INFO] Detection class: 'picked_up_object'")
         print(f"[INFO] Classifier: OpenCLIP {_CLIP_MODEL_NAME}/{_CLIP_PRETRAINED}"
               f"  (available={CLIP_AVAILABLE})")
         return True
@@ -383,19 +392,20 @@ def run_yolo_world(frame, classes: list[str] | None = None) -> list[dict]:
     """
     Two-stage pipeline
     ──────────────────
-    Stage 1 – YOLO-World detects every "object_held_at_hand" in the frame.
+    Stage 1 – YOLO-World detects every "picked_up_object" in the frame.
               `classes` parameter is IGNORED – we always use the single open-
               vocabulary class so the detector fires on ANY hand-held object.
 
     Stage 2 – For each detected box, a clean copy of the original frame is
               made, the red bounding box is drawn on it, and the full
-              annotated frame is submitted to EfficientNet-B0. The ImageNet
-              top-1 prediction replaces the raw YOLO placeholder label.
+              annotated frame is submitted to OpenCLIP DFN5B-CLIP-ViT-H-14-378
+              for zero-shot classification. The top-1 prediction replaces
+              the raw YOLO placeholder label.
 
     Returns list of dicts:
-      {label, conf, yolo_conf, effnet_conf, box}
+      {label, conf, yolo_conf, clip_conf, box}
     """
-    DETECTION_CLASS = ["object_held_at_hand"]   # YOLO-World open-vocab prompt
+    DETECTION_CLASS = ["picked_up_object"]   # YOLO-World open-vocab prompt
 
     # ── Stage 1: YOLO-World detection ────────────────────────────────────────
     if not YOLO_AVAILABLE or model is None:
@@ -411,7 +421,7 @@ def run_yolo_world(frame, classes: list[str] | None = None) -> list[dict]:
             yolo_conf = float(box.conf[0])
             x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
             raw_boxes.append({
-                "label":      "object_held_at_hand",   # placeholder
+                "label":      "picked_up_object",   # placeholder
                 "conf":       round(yolo_conf, 2),
                 "yolo_conf":  round(yolo_conf, 2),
                 "box":        [x1, y1, x2, y2],
@@ -530,7 +540,7 @@ def capture_and_evaluate(expected_name: str, barcode: str) -> dict:
     """
     Called on every barcode scan.
 
-    Detection:      YOLO-World with class "object_held_at_hand"
+    Detection:      YOLO-World with class "picked_up_object"
     Classification: OpenCLIP DFN5B-CLIP_ViT-H-14-378 zero-shot (top-5 stored)
     Verdict:        controlled by MATCH_MODE
       "top1" → expected_name must match the #1 CLIP prediction
@@ -547,7 +557,7 @@ def capture_and_evaluate(expected_name: str, barcode: str) -> dict:
     top1_label   = detections[0]["label"]              if detections else ""
     top1_conf    = detections[0]["conf"]               if detections else 0.0
     top_preds    = detections[0].get("top_preds", [])  if detections else []
-    classes      = ["object_held_at_hand"]
+    classes      = ["picked_up_object"]
 
     # Display-friendly name for verdict messages (last path segment)
     display_name = expected_name.split("/")[-1]
@@ -636,8 +646,8 @@ def capture_and_evaluate(expected_name: str, barcode: str) -> dict:
 def verify_bagging_area() -> dict:
     """
     Manual verify: detect ALL hand-held objects with YOLO-World
-    ("object_held_at_hand"), classify each with EfficientNet-B0,
-    and flag anything whose EfficientNet label is not already in the cart.
+    ("picked_up_object"), classify each with OpenCLIP DFN5B,
+    and flag anything whose CLIP label is not already in the cart.
     """
     global last_snap, active_alert
 
@@ -645,8 +655,8 @@ def verify_bagging_area() -> dict:
     if frame is None:
         return {"verdict": "error", "msg": "Camera unavailable"}
 
-    detections = run_yolo_world(frame)   # uses "object_held_at_hand"
-    classes    = ["object_held_at_hand"]
+    detections = run_yolo_world(frame)   # uses "picked_up_object"
+    classes    = ["picked_up_object"]
 
     # Which product full-path names are already in the cart?
     with state_lock:
@@ -734,7 +744,7 @@ def _live_detection_loop():
 
     Pipeline per frame
     ──────────────────
-    1. YOLO-World detects every "object_held_at_hand" → raw boxes + confidences.
+    1. YOLO-World detects every "picked_up_object" → raw boxes + confidences.
     2. Detections are formatted as an (N, 6) numpy array [x1,y1,x2,y2,conf,cls]
        and passed to ByteTrack.update().
     3. ByteTrack returns active tracks as (M, 7) [x1,y1,x2,y2,track_id,conf,cls].
@@ -742,10 +752,10 @@ def _live_detection_loop():
        brief occlusions / missed frames.
     4. The resulting tracks are written to `live_boxes` (under lock).
 
-    EfficientNet is NOT called here — classification only happens on explicit
+    OpenCLIP classification is NOT called here — it only happens on explicit
     scan/verify events to keep the stream fast.
     """
-    DETECTION_CLASS = ["object_held_at_hand"]
+    DETECTION_CLASS = ["picked_up_object"]
     LIVE_CONF       = 0.20   # slightly lower threshold for live view
     INFERENCE_DELAY = 0.08   # ~12 fps inference cadence
 
@@ -858,9 +868,9 @@ def frame_generator():
             # Bounding box in track colour
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
 
-            # Label: "ID 3 · object_held_at_hand  82%"
+            # Label: "ID 3 · picked_up_object  82%"
             tid_str = f"ID {track_id}" if track_id >= 0 else "untracked"
-            tag     = f"{tid_str}  \u00b7  object_held_at_hand  {conf:.0%}"
+            tag     = f"{tid_str}  \u00b7  picked_up_object  {conf:.0%}"
             (tw, th), _ = cv2.getTextSize(tag, FONT, 0.46, 1)
             pad  = 3
             lx1  = x1
@@ -930,7 +940,7 @@ def start_pipeline():
         "openclip":         CLIP_AVAILABLE,
         "clip_model":       f"{_CLIP_MODEL_NAME}/{_CLIP_PRETRAINED}" if CLIP_AVAILABLE else None,
         "clip_labels":      len(_clip_text_labels),
-        "detection_class":  "object_held_at_hand",
+        "detection_class":  "picked_up_object",
         "product_vocab":    ALL_PRODUCT_NAMES,
         "vocab_size":       len(ALL_PRODUCT_NAMES),
     })
@@ -1071,7 +1081,7 @@ def add_to_vocab():
     Dynamically add a new product name to the zero-shot vocabulary at runtime.
     No retraining needed — both YOLO-World and OpenCLIP DFN5B will recognise
     the new label on the next scan: YOLO-World via set_classes (already using
-    the fixed "object_held_at_hand" class, so no change needed there), and
+    the fixed "picked_up_object" class, so no change needed there), and
     OpenCLIP via a fresh rebuild of the cached text embeddings.
     """
     data = request.get_json(silent=True) or {}
@@ -1100,7 +1110,7 @@ def get_status():
         "clip_model":       f"{_CLIP_MODEL_NAME}/{_CLIP_PRETRAINED}" if CLIP_AVAILABLE else None,
         "clip_labels":      len(_clip_text_labels),
         "bytetrack":        BYTETRACK_AVAILABLE,
-        "detection_class":  "object_held_at_hand",
+        "detection_class":  "picked_up_object",
         "match_mode":       MATCH_MODE,
         "vocab_size":       len(ALL_PRODUCT_NAMES),
         "conf_threshold":   CONF_THRESHOLD,
@@ -1275,6 +1285,20 @@ def regenerate_embeddings():
         "ok": True,
         "clip_labels": len(_clip_text_labels),
         "vocab_size": len(ALL_PRODUCT_NAMES),
+    })
+
+
+@app.route("/api/embeddings/progress", methods=["GET"])
+def embeddings_progress():
+    """Return current embedding regeneration progress."""
+    total   = _embed_progress["total"]
+    current = _embed_progress["current"]
+    pct     = round(current / total * 100) if total > 0 else 0
+    return jsonify({
+        "running": _embed_progress["running"],
+        "current": current,
+        "total":   total,
+        "percent": pct,
     })
 
 
